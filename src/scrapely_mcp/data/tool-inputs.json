@@ -1,0 +1,327 @@
+{
+  "$comment": "Input schemas for every built-in tool, authored for the clean-room spec. Keys, types, bounds, defaults and required lists are binding (clients depend on them). Human-readable 'description' and 'title' texts are deliberately absent: the implementer writes them fresh, following the facts listed per tool in SPEC.md section 7.",
+
+  "search-actors": {
+    "type": "object",
+    "properties": {
+      "keywords": { "type": "string", "default": "" },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 10, "default": 5 },
+      "offset": { "type": "integer", "minimum": 0, "default": 0 }
+    },
+    "additionalProperties": false
+  },
+
+  "fetch-actor-details": {
+    "type": "object",
+    "properties": {
+      "actor": { "type": "string", "minLength": 1 },
+      "output": {
+        "type": "object",
+        "properties": {
+          "description": { "type": "boolean" },
+          "stats": { "type": "boolean" },
+          "pricing": { "type": "boolean" },
+          "rating": { "type": "boolean" },
+          "metadata": { "type": "boolean" },
+          "inputSchema": { "type": "boolean" },
+          "readme": { "type": "boolean" },
+          "outputSchema": { "type": "boolean" },
+          "mcpTools": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["actor"],
+    "additionalProperties": false
+  },
+
+  "call-actor": {
+    "type": "object",
+    "properties": {
+      "actor": { "type": "string" },
+      "input": { "type": "object", "additionalProperties": true },
+      "waitSecs": { "type": "integer", "minimum": 0, "maximum": 45, "default": 30 },
+      "callOptions": { "$ref": "#/$defs/callOptions" }
+    },
+    "required": ["actor", "input"],
+    "additionalProperties": false,
+    "$comment": "Advertise with callOptions inlined (no $ref) for client compatibility. Validation of the TOP level is lenient: unknown top-level keys are tolerated, not rejected and not stripped (see SPEC 6.4)."
+  },
+
+  "get-actor-run": {
+    "type": "object",
+    "properties": {
+      "runId": { "type": "string", "minLength": 1 },
+      "waitSecs": { "type": "integer", "minimum": 0, "maximum": 45, "default": 30 }
+    },
+    "required": ["runId"],
+    "additionalProperties": false
+  },
+
+  "get-actor-run-list": {
+    "type": "object",
+    "properties": {
+      "offset": { "type": "number", "default": 0 },
+      "limit": { "type": "number", "maximum": 10, "default": 10 },
+      "desc": { "type": "boolean", "default": false },
+      "status": {
+        "type": "string",
+        "enum": ["READY", "RUNNING", "SUCCEEDED", "FAILED", "TIMING-OUT", "TIMED-OUT", "ABORTING", "ABORTED"]
+      }
+    },
+    "additionalProperties": false
+  },
+
+  "get-actor-log": {
+    "type": "object",
+    "properties": {
+      "runId": { "type": "string" },
+      "lines": { "type": "number", "maximum": 50, "default": 10 }
+    },
+    "required": ["runId"],
+    "additionalProperties": false
+  },
+
+  "abort-actor-run": {
+    "type": "object",
+    "properties": {
+      "runId": { "type": "string", "minLength": 1 },
+      "gracefully": { "type": "boolean" }
+    },
+    "required": ["runId"],
+    "additionalProperties": false
+  },
+
+  "get-dataset": {
+    "type": "object",
+    "properties": { "datasetId": { "type": "string", "minLength": 1 } },
+    "required": ["datasetId"],
+    "additionalProperties": false
+  },
+
+  "get-dataset-items": {
+    "type": "object",
+    "properties": {
+      "datasetId": { "type": "string", "minLength": 1 },
+      "clean": { "type": "boolean" },
+      "offset": { "type": "number" },
+      "limit": { "type": "integer", "minimum": 1 },
+      "fields": { "type": "string" },
+      "omit": { "type": "string" },
+      "desc": { "type": "boolean" },
+      "flatten": { "type": "string" }
+    },
+    "required": ["datasetId"],
+    "additionalProperties": false,
+    "$comment": "No schema default for limit/offset; the server applies limit=20 and offset=0 when absent."
+  },
+
+  "get-actor-output": {
+    "type": "object",
+    "properties": {
+      "datasetId": { "type": "string", "minLength": 1 },
+      "runId": { "type": "string", "minLength": 1 },
+      "fields": { "type": "string" },
+      "offset": { "type": "integer", "minimum": 0, "default": 0 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 },
+      "includeOutputRecord": { "type": "boolean" },
+      "keyValueStoreId": { "type": "string", "minLength": 1 }
+    },
+    "required": [],
+    "additionalProperties": false,
+    "$comment": "Added after the clean-room spec. datasetId or runId is required (checked by the handler). includeOutputRecord defaults to true when a runId or keyValueStoreId is given."
+  },
+
+  "get-dataset-schema": {
+    "type": "object",
+    "properties": {
+      "datasetId": { "type": "string", "minLength": 1 },
+      "limit": { "type": "integer", "default": 5 },
+      "clean": { "type": "boolean", "default": true }
+    },
+    "required": ["datasetId"],
+    "additionalProperties": false
+  },
+
+  "get-dataset-list": {
+    "type": "object",
+    "properties": {
+      "offset": { "type": "number", "default": 0 },
+      "limit": { "type": "number", "maximum": 20, "default": 10 },
+      "desc": { "type": "boolean", "default": false },
+      "unnamed": { "type": "boolean", "default": false }
+    },
+    "additionalProperties": false
+  },
+
+  "get-key-value-store": {
+    "type": "object",
+    "properties": { "keyValueStoreId": { "type": "string", "minLength": 1 } },
+    "required": ["keyValueStoreId"],
+    "additionalProperties": false
+  },
+
+  "get-key-value-store-keys": {
+    "type": "object",
+    "properties": {
+      "keyValueStoreId": { "type": "string", "minLength": 1 },
+      "exclusiveStartKey": { "type": "string" },
+      "limit": { "type": "number", "maximum": 10 }
+    },
+    "required": ["keyValueStoreId"],
+    "additionalProperties": false
+  },
+
+  "get-key-value-store-record": {
+    "type": "object",
+    "properties": {
+      "keyValueStoreId": { "type": "string", "minLength": 1 },
+      "recordKey": { "type": "string", "minLength": 1 }
+    },
+    "required": ["keyValueStoreId", "recordKey"],
+    "additionalProperties": false
+  },
+
+  "get-key-value-store-list": {
+    "type": "object",
+    "properties": {
+      "offset": { "type": "number", "default": 0 },
+      "limit": { "type": "number", "maximum": 10, "default": 10 },
+      "desc": { "type": "boolean", "default": false },
+      "unnamed": { "type": "boolean", "default": false }
+    },
+    "additionalProperties": false
+  },
+
+  "create-actor-task": {
+    "type": "object",
+    "properties": {
+      "actorId": { "type": "string", "minLength": 1 },
+      "name": { "type": "string", "minLength": 3, "maxLength": 63 },
+      "input": { "type": "object", "additionalProperties": true },
+      "title": { "type": "string" },
+      "build": { "type": "string" },
+      "timeoutSecs": { "type": "integer", "minimum": 0 },
+      "memoryMbytes": { "type": "integer", "minimum": 1 },
+      "publicConfig": { "$ref": "#/$defs/publicConfig" }
+    },
+    "required": ["actorId"],
+    "additionalProperties": false
+  },
+
+  "get-actor-task": {
+    "type": "object",
+    "properties": { "taskId": { "type": "string", "minLength": 1 } },
+    "required": ["taskId"],
+    "additionalProperties": false
+  },
+
+  "update-actor-task": {
+    "type": "object",
+    "properties": {
+      "taskId": { "type": "string", "minLength": 1 },
+      "name": { "type": "string", "minLength": 3, "maxLength": 63 },
+      "title": { "type": "string" },
+      "input": { "type": "object", "additionalProperties": true },
+      "build": { "type": "string" },
+      "timeoutSecs": { "type": "integer", "minimum": 0 },
+      "memoryMbytes": { "type": "integer", "minimum": 1 },
+      "publicConfig": { "$ref": "#/$defs/publicConfig" }
+    },
+    "required": ["taskId"],
+    "additionalProperties": false
+  },
+
+  "publish-actor-task": {
+    "type": "object",
+    "properties": { "taskId": { "type": "string", "minLength": 1 } },
+    "required": ["taskId"],
+    "additionalProperties": false
+  },
+
+  "unpublish-actor-task": {
+    "type": "object",
+    "properties": { "taskId": { "type": "string", "minLength": 1 } },
+    "required": ["taskId"],
+    "additionalProperties": false
+  },
+
+  "search-scrapely-docs": {
+    "type": "object",
+    "properties": {
+      "docSource": { "type": "string", "enum": ["scrapely", "crawlee-js", "crawlee-py"], "default": "scrapely" },
+      "query": { "type": "string", "minLength": 1 },
+      "limit": { "type": "number", "minimum": 1, "maximum": 20, "default": 5 },
+      "offset": { "type": "number", "default": 0 }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+
+  "fetch-scrapely-docs": {
+    "type": "object",
+    "properties": { "url": { "type": "string", "minLength": 1 } },
+    "required": ["url"],
+    "additionalProperties": false
+  },
+
+  "report-problem": {
+    "type": "object",
+    "properties": {
+      "message": { "type": "string", "minLength": 1, "maxLength": 2000 },
+      "actorId": { "type": "string", "maxLength": 200 },
+      "actorRunId": { "type": "string", "maxLength": 200 },
+      "relatedTools": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 20 }
+    },
+    "required": ["message"],
+    "additionalProperties": false
+  },
+
+  "search-actors-widget": { "$comment": "Identical to search-actors." },
+
+  "fetch-actor-details-widget": {
+    "type": "object",
+    "properties": {
+      "actor": { "type": "string", "minLength": 1 },
+      "output": { "type": "object", "additionalProperties": true }
+    },
+    "required": ["actor"],
+    "additionalProperties": false
+  },
+
+  "call-actor-widget": {
+    "type": "object",
+    "properties": {
+      "actor": { "type": "string" },
+      "input": { "type": "object", "additionalProperties": true },
+      "callOptions": { "$ref": "#/$defs/callOptions" }
+    },
+    "required": ["actor", "input"],
+    "additionalProperties": false,
+    "$comment": "No waitSecs: this tool always starts the run and returns immediately."
+  },
+
+  "get-actor-run-widget": { "$comment": "Identical to get-actor-run." },
+
+  "$defs": {
+    "callOptions": {
+      "type": "object",
+      "properties": {
+        "memory": { "type": "number", "minimum": 128, "maximum": 32768 },
+        "timeout": { "type": "number", "minimum": 0 },
+        "build": { "type": "string" },
+        "maxItems": { "type": "integer", "minimum": 1 },
+        "maxTotalChargeUsd": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "publicConfig": {
+      "type": "object",
+      "properties": {
+        "seoTitle": { "type": "string", "maxLength": 60 },
+        "seoDescription": { "type": "string", "maxLength": 160 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

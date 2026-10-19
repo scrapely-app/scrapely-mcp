@@ -1,0 +1,408 @@
+{
+  "$comment": "Structured output shapes (tools/list outputSchema and the structuredContent each tool returns), authored for the clean-room spec. Property names and nesting are binding. Descriptions are intentionally absent. Rule for every tool: structuredContent MUST validate against the advertised outputSchema; omit a property rather than send null unless the schema allows null.",
+
+  "$defs": {
+    "PricingTier": { "type": "string", "enum": ["FREE", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"] },
+
+    "Pricing": {
+      "type": "object",
+      "properties": {
+        "model": { "type": "string", "$comment": "FREE | PRICE_PER_DATASET_ITEM | FLAT_PRICE_PER_MONTH | PAY_PER_EVENT" },
+        "userTier": { "$ref": "#/$defs/PricingTier", "$comment": "complete mode only" },
+        "pricePerUnit": { "type": "number" },
+        "unitName": { "type": "string" },
+        "trialMinutes": { "type": "number" },
+        "tieredPricing": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "tier": { "type": "string" }, "pricePerUnit": { "type": "number" } } }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "description": { "type": "string" },
+              "priceUsd": { "type": "number" },
+              "tieredPricing": {
+                "type": "array",
+                "items": { "type": "object", "properties": { "tier": { "type": "string" }, "priceUsd": { "type": "number" } } }
+              }
+            }
+          }
+        },
+        "pricingNote": { "type": "string" },
+        "eventDescriptionsOmitted": { "type": "boolean" },
+        "eventDescriptionsNote": { "type": "string" }
+      },
+      "required": ["model"]
+    },
+
+    "ActorCard": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "id": { "type": "string" },
+        "fullName": { "type": "string" },
+        "pictureUrl": { "type": "string" },
+        "developer": {
+          "type": "object",
+          "properties": { "username": { "type": "string" }, "isOfficial": { "type": "boolean" }, "url": { "type": "string" } },
+          "required": ["username", "isOfficial", "url"]
+        },
+        "description": { "type": "string" },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "pricing": { "$ref": "#/$defs/Pricing" },
+        "stats": {
+          "type": "object",
+          "properties": { "totalUsers": { "type": "number" }, "monthlyUsers": { "type": "number" }, "bookmarks": { "type": "number" } }
+        },
+        "rating": { "type": "object", "properties": { "average": { "type": "number" }, "count": { "type": "number" } } },
+        "modifiedAt": { "type": "string" },
+        "isDeprecated": { "type": "boolean" },
+        "inputFields": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" },
+            "properties": { "type": "object", "additionalProperties": { "type": "object", "properties": { "type": {} }, "required": ["type"] } },
+            "required": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["type", "properties"]
+        },
+        "inputFieldsTruncated": { "type": "boolean" },
+        "inputFieldsTotalCount": { "type": "number" }
+      },
+      "required": ["url", "id", "fullName", "developer", "description", "categories", "isDeprecated"]
+    },
+
+    "DatasetEntry": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "scrapelyConsoleUrl": { "type": "string" },
+        "name": { "type": "string" },
+        "title": { "type": "string" },
+        "itemCount": { "type": "number" },
+        "inflatedBytes": { "type": "number" },
+        "fields": { "type": "array", "items": { "type": "string" } },
+        "itemsSchema": { "type": "object" }
+      },
+      "required": ["id"]
+    },
+
+    "KeyValueStoreEntry": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "scrapelyConsoleUrl": { "type": "string" },
+        "name": { "type": "string" },
+        "title": { "type": "string" },
+        "keyCount": { "type": "number" },
+        "keys": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id"]
+    },
+
+    "RunResponse": {
+      "type": "object",
+      "properties": {
+        "runId": { "type": "string" },
+        "scrapelyConsoleUrl": { "type": "string" },
+        "actorId": { "type": "string" },
+        "actorName": { "type": "string" },
+        "status": { "type": "string" },
+        "statusMessage": { "type": "string" },
+        "exitCode": { "type": "number" },
+        "startedAt": { "type": "string", "$comment": "UTC ISO-8601, millisecond precision, trailing Z" },
+        "finishedAt": { "type": "string" },
+        "stats": {
+          "type": "object",
+          "properties": { "runTimeSecs": { "type": "number" }, "computeUnits": { "type": "number" }, "memMaxBytes": { "type": "number" } }
+        },
+        "storages": {
+          "type": "object",
+          "properties": {
+            "datasets": {
+              "type": "object",
+              "properties": { "default": { "$ref": "#/$defs/DatasetEntry" } },
+              "required": ["default"],
+              "additionalProperties": { "$ref": "#/$defs/DatasetEntry" }
+            },
+            "keyValueStores": {
+              "type": "object",
+              "properties": { "default": { "$ref": "#/$defs/KeyValueStoreEntry" } },
+              "required": ["default"],
+              "additionalProperties": { "$ref": "#/$defs/KeyValueStoreEntry" }
+            }
+          }
+        },
+        "summary": { "type": "string" },
+        "nextStep": { "type": "string" }
+      },
+      "required": ["runId", "actorId", "status", "storages", "summary", "nextStep"]
+    },
+
+    "PaginatedList": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "number" },
+        "count": { "type": "number" },
+        "offset": { "type": "number" },
+        "limit": { "type": "number" },
+        "desc": { "type": "boolean" },
+        "items": { "type": "array", "items": { "type": "object" } }
+      },
+      "required": ["total", "offset", "limit", "count", "items"]
+    },
+
+    "ActorTaskResult": {
+      "type": "object",
+      "properties": {
+        "taskId": { "type": "string" },
+        "actorId": { "type": "string" },
+        "name": { "type": "string" },
+        "title": { "type": ["string", "null"] },
+        "publishedAt": { "type": ["string", "null"] },
+        "publicConfig": {
+          "type": ["object", "null"],
+          "properties": { "seoTitle": { "type": ["string", "null"] }, "seoDescription": { "type": ["string", "null"] } }
+        },
+        "input": { "type": ["object", "array", "null"] }
+      },
+      "required": ["taskId", "actorId", "name", "title", "publishedAt", "publicConfig", "input"]
+    }
+  },
+
+  "search-actors": {
+    "type": "object",
+    "properties": {
+      "actors": { "type": "array", "items": { "$ref": "#/$defs/ActorCard" } },
+      "query": { "type": "string" },
+      "count": { "type": "number" },
+      "userTier": { "$ref": "#/$defs/PricingTier" },
+      "instructions": { "type": "string" }
+    },
+    "required": ["actors", "query", "count"]
+  },
+
+  "fetch-actor-details": {
+    "type": "object",
+    "properties": {
+      "actorInfo": { "$ref": "#/$defs/ActorCard" },
+      "readme": { "type": "string" },
+      "inputSchema": { "type": "object" },
+      "outputSchema": { "type": "object" },
+      "mcpTools": { "type": "string" }
+    }
+  },
+
+  "call-actor": { "$ref": "#/$defs/RunResponse" },
+  "get-actor-run": { "$ref": "#/$defs/RunResponse" },
+  "abort-actor-run": { "$ref": "#/$defs/RunResponse", "$comment": "actorName is not populated by this tool." },
+  "<dynamic Actor tool>": { "$ref": "#/$defs/RunResponse" },
+
+  "get-actor-run-list": {
+    "allOf": [{ "$ref": "#/$defs/PaginatedList" }],
+    "$comment": "items: run objects as the API returns them, each with at least id, actId, status, defaultDatasetId, defaultKeyValueStoreId; optional actorTaskId, startedAt, finishedAt, buildId, buildNumber, defaultRequestQueueId, usageTotalUsd. buildId/buildNumber are OMITTED (never null) when the API reports them as null."
+  },
+
+  "get-actor-log": {
+    "type": "object",
+    "properties": { "log": { "type": "string" } },
+    "required": ["log"]
+  },
+
+  "get-dataset": {
+    "type": "object",
+    "properties": {
+      "id": { "type": "string" },
+      "name": { "type": ["string", "null"] },
+      "itemCount": { "type": "number" },
+      "fields": { "type": "array", "items": { "type": "string" } },
+      "summary": { "type": "string" },
+      "nextStep": { "type": "string" }
+    },
+    "required": ["id", "summary", "nextStep"],
+    "$comment": "All other dataset metadata fields from the API pass through unchanged, except 'schema', which is removed."
+  },
+
+  "get-dataset-items": {
+    "type": "object",
+    "properties": {
+      "datasetId": { "type": "string" },
+      "scrapelyConsoleUrl": { "type": "string" },
+      "items": { "type": "array", "items": { "type": "object" } },
+      "itemCount": { "type": "number" },
+      "totalItemCount": { "type": "number" },
+      "offset": { "type": "number" },
+      "limit": { "type": "number" },
+      "summary": { "type": "string" },
+      "nextStep": { "type": "string" }
+    },
+    "required": ["datasetId", "items", "itemCount", "totalItemCount", "offset", "limit", "summary", "nextStep"]
+  },
+
+  "get-actor-output": {
+    "type": "object",
+    "properties": {
+      "datasetId": { "type": "string" },
+      "runId": { "type": "string" },
+      "runStatus": { "type": "string" },
+      "scrapelyConsoleUrl": { "type": "string" },
+      "items": { "type": "array", "items": { "type": "object" } },
+      "itemCount": { "type": "number" },
+      "totalItemCount": { "type": "number" },
+      "offset": { "type": "number" },
+      "limit": { "type": "number" },
+      "hasMore": { "type": "boolean" },
+      "nextOffset": { "type": ["number", "null"] },
+      "truncated": { "type": "boolean" },
+      "outputRecord": {
+        "type": ["object", "null"],
+        "properties": {
+          "keyValueStoreId": { "type": "string" },
+          "key": { "type": "string" },
+          "contentType": { "type": "string" },
+          "value": {},
+          "truncated": { "type": "boolean" }
+        },
+        "required": ["keyValueStoreId", "key", "value", "truncated"]
+      },
+      "summary": { "type": "string" },
+      "nextStep": { "type": "string" }
+    },
+    "required": ["datasetId", "items", "itemCount", "totalItemCount", "offset", "limit", "hasMore", "nextOffset", "truncated", "summary", "nextStep"]
+  },
+
+  "get-dataset-schema": {
+    "type": "object",
+    "properties": {
+      "datasetId": { "type": "string" },
+      "schema": { "type": "object" },
+      "summary": { "type": "string" },
+      "nextStep": { "type": "string" }
+    },
+    "required": ["datasetId", "schema", "summary", "nextStep"]
+  },
+
+  "get-dataset-list": {
+    "type": "object",
+    "properties": {
+      "total": { "type": "number" }, "count": { "type": "number" }, "offset": { "type": "number" }, "limit": { "type": "number" },
+      "items": { "type": "array", "items": { "type": "object" } },
+      "summary": { "type": "string" }, "nextStep": { "type": "string" }
+    },
+    "required": ["items", "total", "count", "offset", "limit", "summary", "nextStep"]
+  },
+  "get-key-value-store-list": { "$comment": "Same shape as get-dataset-list." },
+
+  "get-key-value-store": {
+    "type": "object",
+    "properties": {
+      "id": { "type": "string" },
+      "name": { "type": ["string", "null"] },
+      "summary": { "type": "string" },
+      "nextStep": { "type": "string" }
+    },
+    "required": ["id", "summary", "nextStep"],
+    "$comment": "All store metadata fields from the API pass through."
+  },
+
+  "get-key-value-store-keys": {
+    "type": "object",
+    "properties": {
+      "keyValueStoreId": { "type": "string" },
+      "items": {
+        "type": "array",
+        "items": { "type": "object", "properties": { "key": { "type": "string" }, "size": { "type": "number" } }, "required": ["key", "size"] }
+      },
+      "count": { "type": "number" },
+      "isTruncated": { "type": "boolean" },
+      "nextExclusiveStartKey": { "type": ["string", "null"] },
+      "summary": { "type": "string" },
+      "nextStep": { "type": "string" }
+    },
+    "required": ["keyValueStoreId", "items", "count", "isTruncated", "nextExclusiveStartKey", "summary", "nextStep"]
+  },
+
+  "get-key-value-store-record": {
+    "type": "object",
+    "properties": {
+      "keyValueStoreId": { "type": "string" },
+      "key": { "type": "string" },
+      "value": {},
+      "contentType": { "type": "string" },
+      "summary": { "type": "string" }
+    },
+    "required": ["keyValueStoreId", "key", "value", "summary"]
+  },
+
+  "create-actor-task": { "$ref": "#/$defs/ActorTaskResult" },
+  "get-actor-task": { "$ref": "#/$defs/ActorTaskResult" },
+  "update-actor-task": { "$ref": "#/$defs/ActorTaskResult" },
+  "publish-actor-task": { "$ref": "#/$defs/ActorTaskResult" },
+  "unpublish-actor-task": { "$ref": "#/$defs/ActorTaskResult" },
+
+  "search-scrapely-docs": {
+    "type": "object",
+    "properties": {
+      "results": {
+        "type": "array",
+        "items": { "type": "object", "properties": { "url": { "type": "string" }, "content": { "type": "string" } }, "required": ["url"] }
+      },
+      "query": { "type": "string" },
+      "count": { "type": "number" },
+      "instructions": { "type": "string" }
+    },
+    "required": ["results"]
+  },
+
+  "fetch-scrapely-docs": {
+    "type": "object",
+    "properties": { "url": { "type": "string" }, "content": { "type": "string" } },
+    "required": ["url", "content"]
+  },
+
+  "report-problem": {
+    "type": "object",
+    "properties": { "reported": { "type": "boolean" } },
+    "required": ["reported"]
+  },
+
+  "search-actors-widget": {
+    "type": "object",
+    "properties": {
+      "actors": { "type": "array", "items": { "$ref": "#/$defsWidget/WidgetActor" } },
+      "query": { "type": "string" },
+      "count": { "type": "number" }
+    },
+    "required": ["actors", "query", "count"],
+    "$comment": "Corrected shape: the old server advertised a schema that did not match what it returned. Advertise THIS shape."
+  },
+
+  "fetch-actor-details-widget": { "$comment": "Same structured shape as fetch-actor-details (corrected; see SPEC 7.27)." },
+  "call-actor-widget": { "$ref": "#/$defs/RunResponse" },
+  "get-actor-run-widget": { "$ref": "#/$defs/RunResponse" },
+
+  "$defsWidget": {
+    "WidgetActor": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "fullName": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "pictureUrl": { "type": "string" },
+        "stats": {
+          "type": "object",
+          "properties": { "actorReviewRating": { "type": "number" }, "actorReviewCount": { "type": "number" }, "totalUsers": { "type": "number" } }
+        },
+        "url": { "type": "string" },
+        "currentPricingInfo": { "$ref": "#/$defs/Pricing" }
+      }
+    }
+  }
+}

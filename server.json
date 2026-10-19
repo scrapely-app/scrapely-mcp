@@ -1,0 +1,34 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.scrapely/scrapely-mcp-server",
+  "title": "Scrape.ly",
+  "description": "Find Actors in the Scrape.ly Store, run them, and read their datasets, key-value stores and logs.",
+  "version": "0.2.1",
+  "websiteUrl": "https://scrape.ly/docs/mcp",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "scrapely-mcp",
+      "version": "0.2.1",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        { "name": "SCRAPELY_TOKEN", "description": "Scrape.ly API token", "isRequired": false, "isSecret": true },
+        { "name": "SCRAPELY_API_BASE_URL", "description": "Scrape.ly API origin", "isRequired": false, "isSecret": false }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.scrape.ly/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer token: a Scrape.ly API token or an OAuth access token",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
