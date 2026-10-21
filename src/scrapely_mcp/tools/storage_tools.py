@@ -3,16 +3,113 @@
 from __future__ import annotations
 
 import base64
+import json
+import os
 import re
 from typing import Any
 
-from ..api import path_ref, seg
+from ..api import CappedRead, path_ref, seg
 from ..core import CallContext, ok, storage_result, text
 from ..errors import ToolError
 from ..signing import record_url
 from ..util import compact_json, normalize_fields, strip_quotes, strip_record_key, utf8_len
 
 INLINE_LIMIT = 262_144
+
+# The API streams min(limit, total) items for any positive limit, and one item
+# may be up to ~10 MB, so a page is bounded twice: by items (also the input
+# schema's maximum) and by the bytes the gateway reads. A tool result holds a
+# page about twice (structured and text), under the 4 MiB result limit.
+DATASET_MAX_LIMIT = 1000
+DEFAULT_DATASET_PAGE_MAX_BYTES = 1024 * 1024
+DEFAULT_RECORD_MAX_BYTES = 1024 * 1024
+
+
+def _env_bytes(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    try:
+        value = int(raw) if raw and raw.strip() else default
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def dataset_page_max_bytes() -> int:
+    """Bytes of one dataset page the gateway reads (SCRAPELY_MCP_MAX_DATASET_PAGE_BYTES, default 1 MiB)."""
+    return _env_bytes("SCRAPELY_MCP_MAX_DATASET_PAGE_BYTES", DEFAULT_DATASET_PAGE_MAX_BYTES)
+
+
+def record_max_bytes() -> int:
+    """Bytes of one key-value record the gateway reads (SCRAPELY_MCP_MAX_RECORD_BYTES, default 1 MiB)."""
+    return max(_env_bytes("SCRAPELY_MCP_MAX_RECORD_BYTES", DEFAULT_RECORD_MAX_BYTES), INLINE_LIMIT + 1)
+
+
+def _clamp_limit(value: Any, default: int) -> int:
+    return min(max(int(value or default), 1), DATASET_MAX_LIMIT)
+
+
+def _skip_ws(s: str, i: int) -> int:
+    while i < len(s) and s[i] in " \t\r\n":
+        i += 1
+    return i
+
+
+def _complete_items(body: bytes) -> list:
+    """The complete items at the start of a JSON array whose end was cut off."""
+    textual = body.decode("utf-8", "ignore")
+    decoder = json.JSONDecoder()
+    i = _skip_ws(textual, 0)
+    if i >= len(textual) or textual[i] != "[":
+        return []
+    i += 1
+    items: list = []
+    while True:
+        i = _skip_ws(textual, i)
+        try:
+            item, i = decoder.raw_decode(textual, i)
+        except json.JSONDecodeError:
+            break
+        i = _skip_ws(textual, i)
+        if i >= len(textual):
+            break  # nothing after it: a scalar may have been cut mid-value
+        items.append(item)
+        if textual[i] != ",":
+            break
+        i += 1
+    return items
+
+
+def _page_items(read: CappedRead) -> list:
+    """Items of a dataset page read with get_capped (complete items only when it was cut)."""
+    resp = read.response
+    if read.truncated:
+        return _complete_items(resp.content)
+    items = resp.json() if resp.content else []
+    if isinstance(items, dict) and isinstance(items.get("items"), list):
+        items = items["items"]
+    return items if isinstance(items, list) else []
+
+
+def _item_too_large(ds: str, offset: int, cap: int) -> ToolError:
+    return ToolError(
+        f"The item at offset {offset} of dataset '{ds}' is larger than the {cap:,} byte page limit of this tool. "
+        "Read only the columns you need with `fields` (or drop large ones with `omit`), or download the items "
+        "through the Scrape.ly API.",
+        http_status=413,
+    )
+
+
+async def _read_page(cc: CallContext, ds: str, params: dict[str, Any]) -> tuple[CappedRead, list]:
+    read = await cc.api.get_capped(
+        f"/v2/datasets/{path_ref(ds)}/items", params=params, max_bytes=dataset_page_max_bytes()
+    )
+    if read.response.status_code == 404:
+        raise ToolError(f"Dataset '{ds}' was not found. Check the dataset ID.", http_status=404)
+    cc.api.raise_for(read.response)
+    items = _page_items(read)
+    if read.truncated and not items:
+        raise _item_too_large(ds, int(params.get("offset") or 0), dataset_page_max_bytes())
+    return read, items
 
 
 def _size_hint(size: Any) -> str:
@@ -84,8 +181,8 @@ def _header_int(headers, name: str) -> int | None:
 async def get_dataset_items(cc: CallContext, args: dict) -> dict:
     ds = strip_quotes(str(args.get("datasetId") or ""))
     cc.telemetry["dataset_id"] = ds
-    offset = int(args.get("offset") or 0)
-    limit = int(args.get("limit") or 20)
+    offset = max(int(args.get("offset") or 0), 0)
+    limit = _clamp_limit(args.get("limit"), 20)
     fields = args.get("fields")
     flatten = args.get("flatten") or _derive_flatten(fields)
     params: dict[str, Any] = {
@@ -98,21 +195,20 @@ async def get_dataset_items(cc: CallContext, args: dict) -> dict:
         "desc": args.get("desc"),
         "flatten": flatten,
     }
-    resp = await cc.api.request("GET", f"/v2/datasets/{path_ref(ds)}/items", params=params)
-    if resp.status_code == 404:
-        raise ToolError(f"Dataset '{ds}' was not found. Check the dataset ID.", http_status=404)
-    cc.api.raise_for(resp)
-    items = resp.json() if resp.content else []
-    if isinstance(items, dict) and isinstance(items.get("items"), list):
-        items = items["items"]
-    if not isinstance(items, list):
-        items = []
+    read, items = await _read_page(cc, ds, params)
+    resp = read.response
     total = _header_int(resp.headers, "total")
-    count = max(_header_int(resp.headers, "count") or 0, len(items))
+    count = len(items) if read.truncated else max(_header_int(resp.headers, "count") or 0, len(items))
     if total is None:
-        total = offset + count
+        # A cut page had more items than it kept.
+        total = offset + count + (1 if read.truncated else 0)
     if offset + count < total:
         summary = f"Fetched {count} of {total} items (offset {offset})."
+        if read.truncated:
+            summary += (
+                f" The page was cut at {count} items because the items are large "
+                f"(over {dataset_page_max_bytes():,} bytes)."
+            )
         step = f"Call get-dataset-items again with offset={offset + count} for the next page."
     else:
         if offset == 0 and count == total:
@@ -250,17 +346,9 @@ def _clean_empty_arrays(value: Any) -> Any:
 async def get_dataset_schema(cc: CallContext, args: dict) -> dict:
     ds = strip_quotes(str(args.get("datasetId") or ""))
     cc.telemetry["dataset_id"] = ds
-    limit = int(args.get("limit") or 5)
+    limit = _clamp_limit(args.get("limit"), 5)
     clean = args.get("clean", True)
-    resp = await cc.api.request(
-        "GET", f"/v2/datasets/{path_ref(ds)}/items", params={"clean": bool(clean), "limit": limit, "format": "json"}
-    )
-    if resp.status_code == 404:
-        raise ToolError(f"Dataset '{ds}' was not found. Check the dataset ID.", http_status=404)
-    cc.api.raise_for(resp)
-    items = resp.json() if resp.content else []
-    if not isinstance(items, list):
-        items = []
+    _, items = await _read_page(cc, ds, {"clean": bool(clean), "limit": limit, "format": "json"})
     items = items[:limit]
     if not items:
         return storage_result(
@@ -384,9 +472,12 @@ async def get_key_value_store_record(cc: CallContext, args: dict) -> dict:
     sid = strip_quotes(str(args.get("keyValueStoreId") or ""))
     key = strip_record_key(str(args.get("recordKey") or ""))
     cc.telemetry["key_value_store_id"] = sid
-    resp = await cc.api.request(
-        "GET", f"/v2/key-value-stores/{path_ref(sid)}/records/{seg(key)}", headers={"Accept": "*/*"}
+    read = await cc.api.get_capped(
+        f"/v2/key-value-stores/{path_ref(sid)}/records/{seg(key)}",
+        headers={"Accept": "*/*"},
+        max_bytes=record_max_bytes(),
     )
+    resp = read.response
     if resp.status_code == 404:
         store = await cc.api.get_or_none(f"/v2/key-value-stores/{path_ref(sid)}")
         if store is None:
@@ -407,7 +498,7 @@ async def get_key_value_store_record(cc: CallContext, args: dict) -> dict:
             structured["contentType"] = content_type
         return _record_text_result(structured, f"Read record '{key}': it is empty.", console)
     kind = _kind(content_type)
-    if kind in ("json", "text"):
+    if kind in ("json", "text") and not read.truncated:
         if kind == "json":
             try:
                 value: Any = resp.json()
@@ -422,16 +513,25 @@ async def get_key_value_store_record(cc: CallContext, args: dict) -> dict:
         if content_type:
             structured["contentType"] = content_type
         return _record_text_result(structured, f"Read record '{key}' ({base_mime or 'unknown type'}, {size} bytes).", console)
-    size = len(body)
-    structured["value"] = f"<binary {base_mime or 'application/octet-stream'}, {size} bytes>"
+    # Binary, or a record over the read limit (only its first bytes were read).
+    size: int | None = len(body)
+    size_text = f"{len(body)} bytes"
+    if read.truncated:
+        size = read.declared_length
+        size_text = f"{size} bytes" if size else f"more than {len(body)} bytes"
+    label = "binary " if kind == "binary" else ""
+    structured["value"] = f"<{label}{base_mime or 'application/octet-stream'}, {size_text}>"
     if content_type:
         structured["contentType"] = content_type
-    structured["summary"] = f"Read record '{key}' ({base_mime or 'binary'}, {size} bytes)."
+    structured["summary"] = f"Read record '{key}' ({base_mime or 'binary'}, {size_text})."
     mime = base_mime or "application/octet-stream"
-    if size > INLINE_LIMIT:
+    if read.truncated or len(body) > INLINE_LIMIT:
         url = await record_url(cc.api, cc.settings, sid, key)
+        link: dict[str, Any] = {"type": "resource_link", "uri": url, "name": key, "mimeType": mime}
+        if size:
+            link["size"] = size
         content: list[dict] = [
-            {"type": "resource_link", "uri": url, "name": key, "size": size, "mimeType": mime},
+            link,
             text(structured["summary"] + " It is too large to inline; download it from the link."),
         ]
     elif mime.startswith("image/"):
@@ -497,9 +597,13 @@ def _fit_items(items: list, budget: int, counter: list[int]) -> list:
 
 
 async def _read_output_record(cc: CallContext, sid: str, key: str) -> dict | None:
-    resp = await cc.api.request(
-        "GET", f"/v2/key-value-stores/{path_ref(sid)}/records/{seg(key)}", headers={"Accept": "*/*"}
+    # Only the first OUTPUT_RECORD_MAX_BYTES are shown; read a little more than that.
+    read = await cc.api.get_capped(
+        f"/v2/key-value-stores/{path_ref(sid)}/records/{seg(key)}",
+        headers={"Accept": "*/*"},
+        max_bytes=OUTPUT_RECORD_MAX_BYTES * 4,
     )
+    resp = read.response
     if resp.status_code == 404:
         return None
     cc.api.raise_for(resp)
@@ -508,18 +612,18 @@ async def _read_output_record(cc: CallContext, sid: str, key: str) -> dict | Non
     record: dict[str, Any] = {"keyValueStoreId": sid, "key": key, "contentType": content_type, "truncated": False}
     kind = _kind(content_type) if body else "text"
     if kind == "binary":
-        record["value"] = f"<binary {content_type.split(';', 1)[0] or 'application/octet-stream'}, {len(body)} bytes>"
+        record["value"] = f"<binary {content_type.split(';', 1)[0] or 'application/octet-stream'}, {read.declared_length or len(body)} bytes>"
         record["truncated"] = True
         return record
     value: Any
-    if kind == "json":
+    if kind == "json" and not read.truncated:
         try:
             value = resp.json()
         except ValueError:
             value = resp.text
     else:
         value = resp.text if body else ""
-    counter = [0]
+    counter = [1 if read.truncated else 0]
     value = _shorten(value, OUTPUT_VALUE_MAX_CHARS * 4, counter)
     serialized = value if isinstance(value, str) else compact_json(value)
     if utf8_len(serialized) > OUTPUT_RECORD_MAX_BYTES:
@@ -565,22 +669,14 @@ async def get_actor_output(cc: CallContext, args: dict) -> dict:
         "fields": fields,
         "flatten": _derive_flatten(fields),
     }
-    resp = await cc.api.request("GET", f"/v2/datasets/{path_ref(ds)}/items", params=params)
-    if resp.status_code == 404:
-        raise ToolError(f"Dataset '{ds}' was not found. Check the dataset ID.", http_status=404)
-    cc.api.raise_for(resp)
-    raw = resp.json() if resp.content else []
-    if isinstance(raw, dict) and isinstance(raw.get("items"), list):
-        raw = raw["items"]
-    if not isinstance(raw, list):
-        raw = []
-    total = _header_int(resp.headers, "total")
+    read, raw = await _read_page(cc, ds, params)
+    total = _header_int(read.response.headers, "total")
     if total is None:
-        total = offset + len(raw)
+        total = offset + len(raw) + (1 if read.truncated else 0)
     counter = [0]
     items = _fit_items(raw, OUTPUT_ITEMS_MAX_BYTES, counter)
     count = len(items)
-    cut_by_size = count < len(raw)
+    cut_by_size = count < len(raw) or read.truncated
     has_more = offset + count < total
     next_offset = offset + count if has_more else None
 

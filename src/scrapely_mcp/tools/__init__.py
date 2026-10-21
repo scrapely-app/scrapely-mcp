@@ -7,7 +7,7 @@ from ..log import log
 from ..schemas import input_schema, output_schema
 from ..texts import DESCRIPTIONS, TITLES
 from ..validation import advertised_schema
-from . import actor_tools, docs_tools, run_tools, storage_tools, task_tools
+from . import actor_tools, automation_tools, docs_tools, run_tools, storage_tools, task_tools
 
 CATEGORIES: dict[str, list[str]] = {
     "actors": ["search-actors", "fetch-actor-details", "call-actor"],
@@ -25,9 +25,10 @@ CATEGORIES: dict[str, list[str]] = {
         "get-key-value-store-list",
     ],
     "tasks": ["create-actor-task", "get-actor-task", "update-actor-task", "publish-actor-task", "unpublish-actor-task"],
+    "automations": ["list-saved-inputs", "run-saved-input", "list-automations", "run-automation"],
     "dev": ["report-problem"],
 }
-DEFAULT_CATEGORIES = ["actors", "docs", "runs", "storage", "tasks"]
+DEFAULT_CATEGORIES = ["actors", "docs", "runs", "storage", "tasks", "automations"]
 WIDGET_TOOLS = ["search-actors-widget", "fetch-actor-details-widget", "call-actor-widget", "get-actor-run-widget"]
 WIDGET_SIBLINGS = {
     "search-actors": "search-actors-widget",
@@ -65,6 +66,8 @@ _ANNOTATIONS = {
     "update-actor-task": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     "publish-actor-task": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     "unpublish-actor-task": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    "run-saved-input": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True},
+    "run-automation": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True},
     "report-problem": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
 }
 
@@ -104,6 +107,10 @@ _HANDLERS = {
     "update-actor-task": task_tools.update_actor_task,
     "publish-actor-task": task_tools.publish_actor_task,
     "unpublish-actor-task": task_tools.unpublish_actor_task,
+    "list-saved-inputs": automation_tools.list_saved_inputs,
+    "run-saved-input": automation_tools.run_saved_input,
+    "list-automations": automation_tools.list_automations,
+    "run-automation": automation_tools.run_automation,
     "search-scrapely-docs": docs_tools.search_docs,
     "fetch-scrapely-docs": docs_tools.fetch_docs,
     "report-problem": report_problem,

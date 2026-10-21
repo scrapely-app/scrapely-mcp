@@ -37,6 +37,10 @@ TITLES = {
     "update-actor-task": "Update task",
     "publish-actor-task": "Publish task",
     "unpublish-actor-task": "Unpublish task",
+    "list-saved-inputs": "List saved inputs",
+    "run-saved-input": "Run a saved input",
+    "list-automations": "List automations",
+    "run-automation": "Run an automation now",
     "search-scrapely-docs": "Search docs",
     "fetch-scrapely-docs": "Read docs page",
     "report-problem": "Report a problem",
@@ -173,7 +177,8 @@ def get_actor_output(n: Names, mode: str) -> str:
 
 def get_dataset_items(n: Names, mode: str) -> str:
     return (
-        "Read rows from a dataset. Page with `offset` and `limit` (default 20). `fields` and `omit` take "
+        "Read rows from a dataset. Page with `offset` and `limit` (default 20, at most 1000); a page of large "
+        "items may hold fewer items than `limit`, and the reply says where to continue. `fields` and `omit` take "
         "comma-separated field names (dot notation selects nested fields), `flatten` takes comma-separated "
         "fields to flatten, `desc` returns newest first and `clean` skips empty items and hidden fields. "
         "Accepts a dataset ID or `username~dataset-name`."
@@ -181,7 +186,7 @@ def get_dataset_items(n: Names, mode: str) -> str:
 
 
 def get_dataset_schema(n: Names, mode: str) -> str:
-    return "Infer a JSON schema from a sample of a dataset's items (default 5 items)."
+    return "Infer a JSON schema from a sample of a dataset's items (default 5 items, at most 1000)."
 
 
 def get_dataset_list(n: Names, mode: str) -> str:
@@ -333,6 +338,42 @@ def run_widget(n: Names, mode: str) -> str:
     )
 
 
+def list_saved_inputs(n: Names, mode: str) -> str:
+    return (
+        "List the user's saved inputs: named, reusable inputs for an Actor (stored as Actor tasks). Pass actorId "
+        "to see one Actor's saved inputs, its default first, plus the Actor's public example inputs; without it, "
+        "all saved inputs in the account are listed."
+        + _if(n, "run-saved-input", " Start one with run-saved-input.")
+    )
+
+
+def run_saved_input(n: Names, mode: str) -> str:
+    return (
+        "Start a run of one of the user's saved inputs (an Actor task). The run uses the saved input and its run "
+        "options; `input` changes only the fields it names (shallow merge over the saved input). The run is billed "
+        "like any other run. By default the call returns right after the start; pass waitSecs to wait up to 45 "
+        "seconds."
+        + _if(n, "get-actor-run", " Follow the run with get-actor-run.")
+    )
+
+
+def list_automations(n: Names, mode: str) -> str:
+    return (
+        "List the user's automations. An automation has a trigger (manual, a schedule, or another run "
+        "finishing), one or more run steps, optional filters, an optional AI step and deliveries such as email "
+        "or Slack. Filter by actorId or savedInputId to find the automations that use them."
+        + _if(n, "run-automation", " Start one now with run-automation.")
+    )
+
+
+def run_automation(n: Names, mode: str) -> str:
+    return (
+        "Run one of the user's automations now, whatever its trigger. Its steps start Actor runs, which are "
+        "billed like any run; an AI step, if the automation has one, is billed like the AI chat. Returns the "
+        "automation run with the started Actor runs."
+    )
+
+
 DESCRIPTIONS: dict[str, Callable[[Names, str], str]] = {
     "search-actors": search_actors,
     "fetch-actor-details": fetch_actor_details,
@@ -355,6 +396,10 @@ DESCRIPTIONS: dict[str, Callable[[Names, str], str]] = {
     "update-actor-task": update_actor_task,
     "publish-actor-task": publish_actor_task,
     "unpublish-actor-task": unpublish_actor_task,
+    "list-saved-inputs": list_saved_inputs,
+    "run-saved-input": run_saved_input,
+    "list-automations": list_automations,
+    "run-automation": run_automation,
     "search-scrapely-docs": search_docs,
     "fetch-scrapely-docs": fetch_docs,
     "report-problem": report_problem,

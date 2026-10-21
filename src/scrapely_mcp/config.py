@@ -30,6 +30,18 @@ DATASET_SIZE_HINT_BYTES = 50_000
 MAX_WAIT_SECS = 45
 DEFAULT_WAIT_SECS = 30
 
+# Memory bounds for data an Actor (or its MCP server) controls.
+# One tool result (task or not); the task store uses the same limit.
+DEFAULT_MAX_TOOL_RESULT_BYTES = 4 * 1024 * 1024
+# Tool definitions one Actor may add to a session, and all Actors together.
+DEFAULT_MAX_ACTOR_TOOL_BYTES = 1024 * 1024
+DEFAULT_MAX_SESSION_TOOL_BYTES = 4 * 1024 * 1024
+# Actor tool definitions all sessions of the process may keep together. Python
+# holds about 3x these JSON bytes, so 64 MiB stays well inside the 1 GiB container.
+DEFAULT_MAX_TOTAL_TOOL_BYTES = 64 * 1024 * 1024
+# What one tools/list connection to an MCP-server Actor may send back.
+DEFAULT_MAX_REMOTE_TOOL_LIST_BYTES = 4 * 1024 * 1024
+
 
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
@@ -135,6 +147,18 @@ class Settings:
     official_usernames: set[str] = field(default_factory=set)
     session_idle_timeout: float = 1800.0
     max_sessions: int = 10_000
+    # Per-key session caps: one presented credential (token fingerprint) and
+    # one client IP (as forwarded by the API server's /mcp proxy).
+    max_sessions_per_credential: int = 50
+    max_sessions_per_ip: int = 100
+    # Most Actors one ?actors= / ?tools= selection may name.
+    max_selected_actors: int = 50
+    # Byte bounds for Actor-provided tool definitions and for one tool result.
+    max_actor_tool_bytes: int = DEFAULT_MAX_ACTOR_TOOL_BYTES
+    max_session_tool_bytes: int = DEFAULT_MAX_SESSION_TOOL_BYTES
+    max_total_tool_bytes: int = DEFAULT_MAX_TOTAL_TOOL_BYTES
+    max_remote_tool_list_bytes: int = DEFAULT_MAX_REMOTE_TOOL_LIST_BYTES
+    max_tool_result_bytes: int = DEFAULT_MAX_TOOL_RESULT_BYTES
     telemetry_enabled: bool = False
     telemetry_write_key: str | None = None
     skyfire_seller_service_id: str | None = None
@@ -142,6 +166,9 @@ class Settings:
     widget_assets_dir: str | None = None
     widget_resource_domains: list[str] = field(default_factory=list)
     send_legacy_payment_header: bool = True
+    # Shared with the API server (MCP_CLIENT_IP_SECRET). Signs the caller's IP
+    # on x402 calls so the server's x402 attempt limit counts each caller.
+    client_ip_secret: str | None = None
     docs_sources: dict[str, DocSourceConfig] = field(default_factory=dict)
 
     @property
@@ -206,6 +233,18 @@ def load_settings() -> Settings:
         official_usernames={s.strip().lower() for s in official_raw.split(",") if s.strip()},
         session_idle_timeout=_env_float("SCRAPELY_MCP_SESSION_IDLE_TIMEOUT_SECS", 1800.0),
         max_sessions=_env_int("SCRAPELY_MCP_MAX_SESSIONS", 10_000, minimum=1),
+        max_sessions_per_credential=_env_int("SCRAPELY_MCP_MAX_SESSIONS_PER_CREDENTIAL", 50, minimum=1),
+        max_sessions_per_ip=_env_int("SCRAPELY_MCP_MAX_SESSIONS_PER_IP", 100, minimum=1),
+        max_selected_actors=_env_int("SCRAPELY_MCP_MAX_SELECTED_ACTORS", 50, minimum=1),
+        max_actor_tool_bytes=_env_int("SCRAPELY_MCP_MAX_ACTOR_TOOL_BYTES", DEFAULT_MAX_ACTOR_TOOL_BYTES, minimum=1),
+        max_session_tool_bytes=_env_int(
+            "SCRAPELY_MCP_MAX_SESSION_TOOL_BYTES", DEFAULT_MAX_SESSION_TOOL_BYTES, minimum=1
+        ),
+        max_total_tool_bytes=_env_int("SCRAPELY_MCP_MAX_TOTAL_TOOL_BYTES", DEFAULT_MAX_TOTAL_TOOL_BYTES, minimum=1),
+        max_remote_tool_list_bytes=_env_int(
+            "SCRAPELY_MCP_MAX_REMOTE_TOOL_LIST_BYTES", DEFAULT_MAX_REMOTE_TOOL_LIST_BYTES, minimum=1
+        ),
+        max_tool_result_bytes=_env_int("SCRAPELY_MCP_MAX_TOOL_RESULT_BYTES", DEFAULT_MAX_TOOL_RESULT_BYTES, minimum=1),
         telemetry_enabled=env_bool("TELEMETRY_ENABLED", False),
         telemetry_write_key=write_key or None,
         skyfire_seller_service_id=_env("SKYFIRE_SELLER_SERVICE_ID") or None,
@@ -213,6 +252,7 @@ def load_settings() -> Settings:
         widget_assets_dir=_env("SCRAPELY_MCP_WIDGET_ASSETS_DIR") or None,
         widget_resource_domains=resource_domains,
         send_legacy_payment_header=env_bool("SCRAPELY_SEND_LEGACY_PAYMENT_HEADER", True),
+        client_ip_secret=(_env("SCRAPELY_MCP_CLIENT_IP_SECRET") or "").strip() or None,
         docs_sources=_load_doc_sources(),
     )
 

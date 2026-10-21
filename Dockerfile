@@ -1,9 +1,9 @@
 # Hosted (multi-tenant) Scrape.ly MCP server.
-# Build from PyPI:   docker build --build-arg VERSION=0.2.1 -t scrapely-mcp .
+# Build from PyPI:   docker build --build-arg VERSION=0.3.0 -t scrapely-mcp .
 # Build from source: docker build --build-arg SOURCE=local -t scrapely-mcp .
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
-ARG VERSION=0.2.1
+ARG VERSION=0.3.0
 ARG SOURCE=pypi
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

@@ -1,5 +1,5 @@
 {
-  "$comment": "Structured output shapes (tools/list outputSchema and the structuredContent each tool returns), authored for the clean-room spec. Property names and nesting are binding. Descriptions are intentionally absent. Rule for every tool: structuredContent MUST validate against the advertised outputSchema; omit a property rather than send null unless the schema allows null.",
+  "$comment": "Derived from the tool schemas of apify-mcp-server (MIT, Copyright (c) 2025 Apify), via scrapely-mcp 0.1.x; see NOTICE for the full license text. Modified by TeraShift GmbH: descriptions removed, names changed, properties removed and tools added. Structured output shapes (tools/list outputSchema and the structuredContent each tool returns). Property names and nesting are binding. Descriptions are intentionally absent. Rule for every tool: structuredContent MUST validate against the advertised outputSchema; omit a property rather than send null unless the schema allows null.",
 
   "$defs": {
     "PricingTier": { "type": "string", "enum": ["FREE", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"] },
@@ -343,6 +343,20 @@
   "update-actor-task": { "$ref": "#/$defs/ActorTaskResult" },
   "publish-actor-task": { "$ref": "#/$defs/ActorTaskResult" },
   "unpublish-actor-task": { "$ref": "#/$defs/ActorTaskResult" },
+  "list-saved-inputs": { "allOf": [{ "$ref": "#/$defs/PaginatedList" }] },
+  "run-saved-input": { "$ref": "#/$defs/RunResponse" },
+  "list-automations": { "allOf": [{ "$ref": "#/$defs/PaginatedList" }] },
+  "run-automation": {
+    "type": "object",
+    "properties": {
+      "automationRunId": { "type": "string" },
+      "automationId": { "type": "string" },
+      "status": { "type": "string" },
+      "startedAt": { "type": "string" },
+      "steps": { "type": "array", "items": { "type": "object" } }
+    },
+    "required": ["automationRunId", "status"]
+  },
 
   "search-scrapely-docs": {
     "type": "object",

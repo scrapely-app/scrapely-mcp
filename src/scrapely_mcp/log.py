@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import sys
+from collections import OrderedDict
 from typing import Any
 
 LOGGER_NAME = "scrapely_mcp"
@@ -26,6 +27,7 @@ _SENSITIVE_KEYS = {
     "payment-signature",
     "x402/payment",
     "x-payment",
+    "x-scrapely-x402-session",
     "password",
     "secret",
     "apikey",
@@ -37,12 +39,19 @@ _TOKEN_QUERY_RE = re.compile(r"(?i)([?&](?:token|skyfire-pay-id)=)[^&\s\"']+")
 _ERROR_WORD_RE = re.compile(r"(?i)\berror\b")
 
 # Values registered at runtime (current tokens / payment ids) are scrubbed from any text.
-_secret_values: set[str] = set()
+# Bounded and least-recently-registered first out: every request registers its
+# credential again, so values in use stay while values sent once (including
+# arbitrary unauthenticated ones) age out instead of growing the set forever.
+MAX_SECRET_VALUES = 4096
+_secret_values: OrderedDict[str, None] = OrderedDict()
 
 
 def register_secret(value: str | None) -> None:
     if value and len(value) >= 6:
-        _secret_values.add(value)
+        _secret_values[value] = None
+        _secret_values.move_to_end(value)
+        while len(_secret_values) > MAX_SECRET_VALUES:
+            _secret_values.popitem(last=False)
 
 
 def token_fingerprint(token: str | None) -> str:

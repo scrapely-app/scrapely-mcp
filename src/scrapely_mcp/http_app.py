@@ -21,7 +21,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from .config import Settings, is_internal_host, load_settings, parse_bool
 from .log import log, register_secret, token_fingerprint
 from .payments import make_provider, parse_payment
-from .selection import Selection, load_tools, normalize_selection
+from .selection import Selection, ToolCapacityError, actor_selectors, load_tools, normalize_selection
 from .server import ScrapelyServer, build_state
 from .task_store import TASK_METHODS, TaskError, store as task_store
 
@@ -38,6 +38,8 @@ class SessionEntry:
     stop: anyio.Event
     inflight: int = 0
     last_seen: float = field(default_factory=time.monotonic)
+    # Admission keys ("cred:<fingerprint>", "ip:<address>") this session counts against.
+    keys: tuple[str, ...] = ()
 
 
 def _json_response_messages(status: int, body: Any, headers: dict[str, str] | None = None):
@@ -71,6 +73,9 @@ class Gateway:
         self.telemetry_enabled = self.settings.telemetry_enabled if telemetry_enabled is None else telemetry_enabled
         self.sessions: dict[str, SessionEntry] = {}
         self.reserving = 0
+        # Open session ids and pending reservations per admission key.
+        self._by_key: dict[str, set[str]] = {}
+        self._reserved_by_key: dict[str, int] = {}
         self._tg: anyio.abc.TaskGroup | None = None
         self._preloaded: list | None = None
         self._lock = anyio.Lock()
@@ -92,6 +97,10 @@ class Gateway:
         while True:
             await anyio.sleep(interval)
             self.sweep()
+            try:
+                task_store.sweep()
+            except Exception:  # noqa: BLE001
+                log.error("task store sweep failed", exc=True)
 
     def sweep(self) -> int:
         timeout = self.settings.session_idle_timeout
@@ -106,7 +115,25 @@ class Gateway:
     def close_session(self, session_id: str) -> None:
         entry = self.sessions.pop(session_id, None)
         if entry is not None:
+            for key in entry.keys:
+                ids = self._by_key.get(key)
+                if ids is not None:
+                    ids.discard(session_id)
+                    if not ids:
+                        self._by_key.pop(key, None)
+            # The session's tasks go with it: running ones are cancelled and kept
+            # results released, so the session caps also bound task state.
+            try:
+                task_store.drop_scope(session_id)
+            except Exception:  # noqa: BLE001
+                log.error("dropping a closed session's tasks failed", exc=True)
+            entry.server.state.release_tools()
             entry.stop.set()
+
+    def _register(self, entry: SessionEntry) -> None:
+        self.sessions[entry.session_id] = entry
+        for key in entry.keys:
+            self._by_key.setdefault(key, set()).add(entry.session_id)
 
     async def __call__(self, scope: dict, receive, send) -> None:
         if scope["type"] == "lifespan":
@@ -193,6 +220,24 @@ class Gateway:
         if parts.scheme != "https" or is_internal_host(parts.hostname):
             origin = issuer
         return {"resource": origin, "authorization_servers": [issuer], "scopes_supported": ["read", "write"]}
+
+    @staticmethod
+    def client_ip(scope: dict, headers: dict[str, str]) -> str:
+        """The caller's IP address.
+
+        The gateway is reachable only from the API server's /mcp proxy, which
+        replaces X-Forwarded-For with the single client address it resolved.
+        Only that last hop is trusted; without the header the socket peer is used.
+        """
+        xff = headers.get("x-forwarded-for")
+        if xff:
+            last = xff.split(",")[-1].strip()
+            if last:
+                return last[:64]
+        client = scope.get("client")
+        if client:
+            return str(client[0])
+        return "unknown"
 
     @staticmethod
     def extract_token(headers: dict[str, str], query: dict[str, list[str]]) -> str | None:
@@ -351,6 +396,23 @@ class Gateway:
             if parsed_bool is not None:
                 telemetry = parsed_bool
         selection = self._url_selection(query)
+        if selection is not None:
+            n_actors = len(actor_selectors(selection))
+            limit = self.settings.max_selected_actors
+            if n_actors > limit:
+                await self._send_all(
+                    send,
+                    _json_response_messages(
+                        400,
+                        rpc_error(
+                            -32602,
+                            f"Too many Actors selected ({n_actors}). Select at most {limit} Actors "
+                            "with ?actors= or ?tools=.",
+                            rpc_id,
+                        ),
+                    ),
+                )
+                return
 
         protocol_header = headers.get("mcp-protocol-version", "")
         # 9. stateless request
@@ -359,22 +421,29 @@ class Gateway:
                 scope = dict(scope)
                 scope["headers"] = list(scope.get("headers") or []) + [(b"mcp-protocol-version", b"2026-07-28")]
             payment = await make_provider(self.settings, payment_kind) if payment_kind else None
-            state = await build_state(
-                self.settings,
-                token=api_token,
-                payment=payment,
-                ui_option=ui_option,
-                telemetry_enabled=telemetry,
-                transport="http",
-                selection=selection,
-                preloaded=self._preloaded,
-                task_scope=f"token:{fingerprint}" if token else "anonymous",
-                stateless=True,
-            )
-            server = ScrapelyServer(state)
-            manager = StreamableHTTPSessionManager(app=server, stateless=True, session_idle_timeout=None)
-            async with manager.run():
-                await manager.handle_request(scope, replay, send)
+            try:
+                state = await build_state(
+                    self.settings,
+                    token=api_token,
+                    payment=payment,
+                    ui_option=ui_option,
+                    telemetry_enabled=telemetry,
+                    transport="http",
+                    selection=selection,
+                    preloaded=self._preloaded,
+                    task_scope=f"token:{fingerprint}" if token else "anonymous",
+                    stateless=True,
+                )
+            except ToolCapacityError as exc:
+                await self._send_all(send, self._at_capacity(exc, rpc_id))
+                return
+            try:
+                server = ScrapelyServer(state)
+                manager = StreamableHTTPSessionManager(app=server, stateless=True, session_idle_timeout=None)
+                async with manager.run():
+                    await manager.handle_request(scope, replay, send)
+            finally:
+                state.release_tools()
             return
 
         # 10. session creation needs initialize
@@ -383,7 +452,28 @@ class Gateway:
             return
 
         # 11. capacity
-        if not await self._reserve():
+        keys = self._admission_keys(token, fingerprint, self.client_ip(scope, headers))
+        refusal = await self._reserve(keys)
+        if refusal == "key":
+            log.soft_fail(
+                "per-credential/per-IP session limit reached, refusing new session",
+                max_per_credential=self.settings.max_sessions_per_credential,
+                max_per_ip=self.settings.max_sessions_per_ip,
+            )
+            await self._send_all(
+                send,
+                _json_response_messages(
+                    429,
+                    rpc_error(
+                        -32000,
+                        "Too many open MCP sessions for this credential or client address. Close unused "
+                        "sessions (HTTP DELETE with the Mcp-Session-Id header) or retry later.",
+                    ),
+                    {"Retry-After": "30"},
+                ),
+            )
+            return
+        if refusal is not None:
             log.soft_fail("session limit reached, refusing new session", max_sessions=self.settings.max_sessions)
             await self._send_all(
                 send,
@@ -396,10 +486,17 @@ class Gateway:
             return
         try:
             await self._open_session(
-                scope, replay, send, api_token, fingerprint, payment_kind, ui_option, telemetry, selection
+                scope, replay, send, api_token, fingerprint, payment_kind, ui_option, telemetry, selection, keys
             )
+        except ToolCapacityError as exc:
+            await self._send_all(send, self._at_capacity(exc, rpc_id))
         finally:
-            self.reserving -= 1
+            self._release(keys)
+
+    @staticmethod
+    def _at_capacity(exc: ToolCapacityError, rpc_id: Any) -> list:
+        log.soft_fail("process-wide Actor tool budget is full, refusing the request")
+        return _json_response_messages(503, rpc_error(-32000, str(exc), rpc_id), {"Retry-After": "30"})
 
     def _url_selection(self, query: dict[str, list[str]]) -> Selection | None:
         if not any(k in query for k in ("tools", "actors", "maxActorMemoryBytes")):
@@ -415,20 +512,66 @@ class Gateway:
         tools = query.get("tools")
         return normalize_selection(actors if actors is not None else None, tools if tools is not None else None, max_mem)
 
-    async def _reserve(self) -> bool:
-        async with self._lock:
-            if len(self.sessions) + self.reserving < self.settings.max_sessions:
-                self.reserving += 1
-                return True
-            idle = [s for s in self.sessions.values() if s.inflight == 0]
-            if idle:
-                lru = min(idle, key=lambda s: s.last_seen)
-                self.close_session(lru.session_id)
-                self.reserving += 1
-                return True
-            return False
+    def _admission_keys(self, token: str | None, fingerprint: str, ip: str) -> tuple[str, ...]:
+        keys = [f"ip:{ip}"]
+        if token:
+            keys.insert(0, f"cred:{fingerprint}")
+        return tuple(keys)
 
-    async def _open_session(self, scope, replay, send, token, fingerprint, payment_kind, ui_option, telemetry, selection):
+    def _key_cap(self, key: str) -> int:
+        if key.startswith("cred:"):
+            return self.settings.max_sessions_per_credential
+        return self.settings.max_sessions_per_ip
+
+    def _key_count(self, key: str) -> int:
+        return len(self._by_key.get(key, ())) + self._reserved_by_key.get(key, 0)
+
+    def _lru_idle(self, ids) -> SessionEntry | None:
+        idle = [e for e in (self.sessions.get(i) for i in ids) if e is not None and e.inflight == 0]
+        return min(idle, key=lambda e: e.last_seen) if idle else None
+
+    async def _reserve(self, keys: tuple[str, ...] = ()) -> str | None:
+        """Reserve a slot for a new session. Returns None, "key" or "global".
+
+        A caller over its own per-key cap only ever evicts its own idle
+        sessions. When the whole pool is full, the caller's own idle sessions
+        go first; another caller's idle session is evicted only as a last resort.
+        """
+        async with self._lock:
+            for key in keys:
+                if self._key_count(key) >= self._key_cap(key):
+                    victim = self._lru_idle(list(self._by_key.get(key, ())))
+                    if victim is None:
+                        return "key"
+                    self.close_session(victim.session_id)
+            if len(self.sessions) + self.reserving >= self.settings.max_sessions:
+                victim = None
+                for key in keys:
+                    victim = self._lru_idle(list(self._by_key.get(key, ())))
+                    if victim is not None:
+                        break
+                if victim is None:
+                    victim = self._lru_idle(list(self.sessions))
+                if victim is None:
+                    return "global"
+                self.close_session(victim.session_id)
+            self.reserving += 1
+            for key in keys:
+                self._reserved_by_key[key] = self._reserved_by_key.get(key, 0) + 1
+            return None
+
+    def _release(self, keys: tuple[str, ...]) -> None:
+        self.reserving -= 1
+        for key in keys:
+            left = self._reserved_by_key.get(key, 0) - 1
+            if left > 0:
+                self._reserved_by_key[key] = left
+            else:
+                self._reserved_by_key.pop(key, None)
+
+    async def _open_session(
+        self, scope, replay, send, token, fingerprint, payment_kind, ui_option, telemetry, selection, keys=()
+    ):
         payment = await make_provider(self.settings, payment_kind) if payment_kind else None
         state = await build_state(
             self.settings,
@@ -460,8 +603,10 @@ class Gateway:
                         sid = v.decode("latin-1")
                         state.session_id = sid
                         state.task_scope = sid
-                        entry = SessionEntry(sid, fingerprint, server, manager, stop)
-                        self.sessions[sid] = entry
+                        # In flight until the initialize response is done, so a
+                        # full pool cannot evict it as idle mid-handshake.
+                        entry = SessionEntry(sid, fingerprint, server, manager, stop, inflight=1, keys=keys)
+                        self._register(entry)
                         registered["entry"] = entry
             await send(message)
 
@@ -469,8 +614,10 @@ class Gateway:
             await manager.handle_request(scope, replay, watch)
         finally:
             if "entry" not in registered:
+                state.release_tools()
                 stop.set()
             else:
+                registered["entry"].inflight -= 1
                 registered["entry"].last_seen = time.monotonic()
 
 

@@ -229,7 +229,7 @@ async def _mcp_tools_text(cc: CallContext, definition) -> str:
     except UnsafeMcpUrl as exc:
         return f"The Actor's MCP endpoint is not usable: {exc}."
     try:
-        tools = await remote.list_remote_tools(url, cc.api.token)
+        tools = await remote.list_remote_tools(url, cc.api.token, cc.settings.max_remote_tool_list_bytes)
     except RemoteUnreachable as exc:
         log.soft_fail("MCP-server Actor unreachable", actor=definition.full_name, reason=str(exc))
         return f"Could not connect to the Actor's MCP server: {exc}"

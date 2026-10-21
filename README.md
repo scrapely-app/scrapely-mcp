@@ -72,7 +72,7 @@ Options:
 
 ## Tools
 
-Default categories: `actors`, `docs`, `runs`, `storage`, `tasks`. The `dev` category (`report-problem`) is off by
+Default categories: `actors`, `docs`, `runs`, `storage`, `tasks`, `automations`. The `dev` category (`report-problem`) is off by
 default.
 
 | Category | Tools |
@@ -82,6 +82,7 @@ default.
 | runs | `get-actor-run`, `get-actor-output`, `get-actor-run-list`, `get-actor-log`, `abort-actor-run` |
 | storage | `get-actor-output`, `get-dataset`, `get-dataset-items`, `get-dataset-schema`, `get-key-value-store`, `get-key-value-store-keys`, `get-key-value-store-record`, `get-dataset-list`, `get-key-value-store-list` |
 | tasks | `create-actor-task`, `get-actor-task`, `update-actor-task`, `publish-actor-task`, `unpublish-actor-task` |
+| automations | `list-saved-inputs`, `run-saved-input`, `list-automations`, `run-automation` |
 | dev | `report-problem` |
 
 Whenever `call-actor`, `get-actor-run` or an Actor tool is enabled, `get-actor-run`, `get-actor-output`,
@@ -133,6 +134,25 @@ A container image definition is in `Dockerfile` (`docker build --build-arg SOURC
 | `SCRAPELY_MCP_UI` / `UI_MODE` | `auto` | Widget mode |
 | `SCRAPELY_MCP_SESSION_IDLE_TIMEOUT_SECS` | `1800` | Idle session timeout |
 | `SCRAPELY_MCP_MAX_SESSIONS` | `10000` | Session limit |
+| `SCRAPELY_MCP_MAX_SESSIONS_PER_CREDENTIAL` | `50` | Open sessions per presented token; over it the caller's own oldest idle session is closed, or the request gets 429 |
+| `SCRAPELY_MCP_MAX_SESSIONS_PER_IP` | `100` | Open sessions per client IP (last `X-Forwarded-For` hop, set by the API server's `/mcp` proxy) |
+| `SCRAPELY_MCP_MAX_SELECTED_ACTORS` | `50` | Most distinct Actors one `?actors=` / `?tools=` selection may name (400 above it) |
+| `SCRAPELY_MCP_VALIDATION_BUDGET_SECS` | `2` | Time one tool call's argument validation may take; a call over it is refused as too large or complex |
+| `SCRAPELY_MCP_MAX_REMOTE_RESPONSE_BYTES` | `10485760` | Byte limit for what one connection to an MCP-server Actor may return |
+| `SCRAPELY_MCP_MAX_REMOTE_TOOL_LIST_BYTES` | `4194304` | Byte limit for one `tools/list` connection to an MCP-server Actor |
+| `SCRAPELY_MCP_MAX_ACTOR_TOOL_BYTES` | `1048576` | Tool definitions one Actor may add to a session; an Actor over it is skipped |
+| `SCRAPELY_MCP_MAX_SESSION_TOOL_BYTES` | `4194304` | Actor tool definitions one session may keep; Actors past it are skipped |
+| `SCRAPELY_MCP_MAX_TOTAL_TOOL_BYTES` | `67108864` | Actor tool definitions all sessions may keep together; a new session or request that does not fit gets 503 |
+| `SCRAPELY_MCP_MAX_REMOTE_INFLIGHT_BYTES` | `67108864` | Bytes all open connections to MCP-server Actors may hold together (task results until they are stored); a connection over it fails with a retry hint |
+| `SCRAPELY_MCP_MAX_TOOL_RESULT_BYTES` | `4194304` | Largest result one tool call (or task) may return; a larger one becomes an error |
+| `SCRAPELY_MCP_MAX_DATASET_PAGE_BYTES` | `1048576` | Bytes of one dataset page the storage tools read; a page is cut after its last complete item |
+| `SCRAPELY_MCP_MAX_RECORD_BYTES` | `1048576` | Bytes of one key-value record read inline; a larger record is returned as a download link |
+| `SCRAPELY_MCP_MAX_TASKS_PER_SCOPE` | `100` | Protocol tasks kept per session/credential; oldest finished ones are dropped first |
+| `SCRAPELY_MCP_MAX_TASKS_TOTAL` | `10000` | Protocol tasks kept in total |
+| `SCRAPELY_MCP_MAX_TASK_RESULT_BYTES_PER_SCOPE` | `16777216` | Task results kept per session/credential; the oldest are released first |
+| `SCRAPELY_MCP_MAX_TASK_RESULT_BYTES_TOTAL` | `134217728` | Task results kept in total; the oldest are released first |
+| `SCRAPELY_MCP_TASK_RESULT_GRACE_SECS` | `60` | A task result is released this long after `tasks/result` first returned it |
+| `SCRAPELY_MCP_TASK_RETENTION_SECS` | `900` | Finished tasks are dropped this long after they finish (or after their `ttl`) |
 | `SCRAPELY_MCP_REPORT_PROBLEM_BLOCKED_CLIENTS` | `anthropic,claude` | Clients that do not see `report-problem` |
 | `SCRAPELY_OFFICIAL_USERNAMES` | `scrapely` | Usernames shown as official |
 | `SCRAPELY_DOCS_ALGOLIA_APP_ID` / `_API_KEY` / `_INDEX` | empty | Scrape.ly docs search index |
@@ -163,4 +183,4 @@ pytest
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). Third-party notices are in [NOTICE](NOTICE).

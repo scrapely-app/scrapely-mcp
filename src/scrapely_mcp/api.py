@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import quote
 
 import httpx
 
 from . import __version__
 from .errors import ApiError
+from .log import register_secret
 
 USER_AGENT = f"scrapely-mcp/{__version__} (Origin/mcp-server; python)"
 DEFAULT_TIMEOUT = 30.0
 _RETRY_STATUSES = {429, 502, 503, 504}
+PAYMENT_SIGNATURE_HEADER = "PAYMENT-SIGNATURE"
+X402_SESSION_HEADER = "x-scrapely-x402-session"
 
 
 def path_ref(ref: str) -> str:
@@ -27,6 +30,19 @@ def path_ref(ref: str) -> str:
 
 def seg(value: str) -> str:
     return quote(value, safe="")
+
+
+class CappedRead(NamedTuple):
+    """A GET response whose body was read up to a byte budget."""
+
+    response: httpx.Response  # holds at most the budget's bytes of (decoded) body
+    truncated: bool  # the body had more bytes than the budget
+    declared_length: int | None  # the Content-Length the API sent, if any
+
+
+# Headers that describe the body as sent, not the decoded bytes kept in a CappedRead.
+_BODY_FRAMING_HEADERS = {"content-encoding", "content-length", "transfer-encoding"}
+_ERROR_BODY_MAX_BYTES = 65_536
 
 
 class ApiClient:
@@ -99,6 +115,7 @@ class ApiClient:
             if timeout is not None:
                 kwargs["timeout"] = timeout
             last = await self.client.request(method, path, **kwargs)
+            self._adopt_x402_session(last)
             if last.status_code in _RETRY_STATUSES and attempt + 1 < attempts:
                 await asyncio.sleep(delay)
                 delay *= 2
@@ -106,6 +123,64 @@ class ApiClient:
             return last
         assert last is not None
         return last
+
+    async def get_capped(
+        self,
+        path: str,
+        *,
+        max_bytes: int,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> CappedRead:
+        """GET read as a stream that stops after `max_bytes` decoded bytes.
+
+        For bodies whose size the caller does not control (dataset pages,
+        records): the API streams whatever the request selects, so the gateway
+        never holds more than `max_bytes` of one response. Error bodies are read
+        up to 64 KB.
+        """
+        clean_params = _clean_params(params)
+        delay = 0.25
+        attempt = 0
+        while True:
+            attempt += 1
+            async with self.client.stream("GET", path, params=clean_params, headers=headers) as resp:
+                self._adopt_x402_session(resp)
+                if not (resp.status_code in _RETRY_STATUSES and attempt < 3):
+                    limit = max_bytes if resp.status_code < 400 else min(max_bytes, _ERROR_BODY_MAX_BYTES)
+                    chunks: list[bytes] = []
+                    total = 0
+                    truncated = False
+                    async for chunk in resp.aiter_bytes():
+                        room = limit - total
+                        if len(chunk) > room:
+                            chunks.append(chunk[:room])
+                            truncated = True
+                            break
+                        chunks.append(chunk)
+                        total += len(chunk)
+                    try:
+                        declared = int(resp.headers.get("content-length") or "")
+                    except ValueError:
+                        declared = None
+                    kept = [(k, v) for k, v in resp.headers.multi_items() if k.lower() not in _BODY_FRAMING_HEADERS]
+                    out = httpx.Response(resp.status_code, headers=kept, content=b"".join(chunks), request=resp.request)
+                    return CappedRead(out, truncated, declared)
+            await asyncio.sleep(delay)
+            delay *= 2
+
+    def _adopt_x402_session(self, resp: httpx.Response) -> None:
+        """An x402 payment is single-use: the API returns a session token on the
+        request it authenticated, and the remaining requests of this tool call use it."""
+        session = resp.headers.get(X402_SESSION_HEADER)
+        if not session or PAYMENT_SIGNATURE_HEADER not in self.headers:
+            return
+        register_secret(session)
+        self.headers.pop(PAYMENT_SIGNATURE_HEADER, None)
+        self.headers[X402_SESSION_HEADER] = session
+        if self._client is not None:
+            self._client.headers.pop(PAYMENT_SIGNATURE_HEADER, None)
+            self._client.headers[X402_SESSION_HEADER] = session
 
     @staticmethod
     def raise_for(resp: httpx.Response) -> None:

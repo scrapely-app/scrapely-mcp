@@ -95,6 +95,13 @@ class SessionState:
     base_tools: list[ToolDef] = field(default_factory=list)
     tools: OrderedDict[str, ToolDef] = field(default_factory=OrderedDict)
     stateless: bool = False
+    # This session's share of the process-wide Actor tool budget (selection.ToolReservation).
+    tool_reservation: Any = None
+
+    def release_tools(self) -> None:
+        """Give this session's Actor tool bytes back to the process-wide budget (idempotent)."""
+        if self.tool_reservation is not None:
+            self.tool_reservation.release()
 
     def tool_names(self) -> set[str]:
         return set(self.tools.keys())

@@ -155,7 +155,9 @@ async def _proxy(state: SessionState, uri: str, token: str) -> list[dict]:
     total = 0
     too_large = False
     try:
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        # Redirects are not followed: the target path is caller-chosen, and an
+        # API route that redirects would send the gateway to any host.
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=False) as client:
             async with client.stream("GET", fetch_url, headers=headers) as resp:
                 status = resp.status_code
                 ct = resp.headers.get("content-type") or ""

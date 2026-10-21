@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import weakref
 from collections import OrderedDict
 from typing import Any
 
@@ -12,12 +13,12 @@ from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import MCPError
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
-from . import SERVER_NAME, SERVER_TITLE, __version__, pipeline, resources
+from . import SERVER_NAME, SERVER_TITLE, __version__, pipeline, remote, resources
 from .config import Settings
 from .core import ClientContext, SessionState, ToolDef
 from .log import log, token_fingerprint
 from .payments import PaymentProvider
-from .selection import Selection, compose, load_tools
+from .selection import Selection, ToolReservation, compose, load_tools
 from .task_store import TASK_METHODS, TaskError, store as task_store
 from .texts import instructions as build_instructions
 from .widgets import widget_meta
@@ -213,7 +214,10 @@ class ScrapelyServer(Server):
         task = params.get("task") if isinstance(params.get("task"), dict) else {}
         ttl = task.get("ttl") if isinstance(task.get("ttl"), int) else None
         scope = task_scope_for(state, ctx)
-        record = task_store.create(scope, ttl)
+        try:
+            record = task_store.create(scope, ttl)
+        except TaskError as exc:
+            raise MCPError(code=exc.code, message=exc.message) from exc
         headers = _headers_of(ctx)
         meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else None
         arguments = params.get("arguments")
@@ -222,15 +226,18 @@ class ScrapelyServer(Server):
             if record.expired():
                 log.soft_fail("task expired before it started", task_id=record.task_id)
                 return
-            try:
-                result = await pipeline.call_tool(
-                    state, name, arguments, meta=meta, headers=headers, task_mode=True
-                )
-            except asyncio.CancelledError:
-                return
-            except Exception as exc:  # noqa: BLE001
-                result = {"content": [{"type": "text", "text": f"Task failed: {exc}"}], "isError": True}
-            task_store.complete(scope, record.task_id, result)
+            # Remote bytes count against the process-wide in-flight budget from
+            # their arrival until the task store has taken over the result.
+            with remote.hold_inflight():
+                try:
+                    result = await pipeline.call_tool(
+                        state, name, arguments, meta=meta, headers=headers, task_mode=True
+                    )
+                except asyncio.CancelledError:
+                    return
+                except Exception as exc:  # noqa: BLE001
+                    result = {"content": [{"type": "text", "text": f"Task failed: {exc}"}], "isError": True}
+                task_store.complete(scope, record.task_id, result)
 
         record.runner = asyncio.get_running_loop().create_task(run())
         return {"task": record.public()}
@@ -320,13 +327,24 @@ async def build_state(
     if preloaded is not None and selection is None:
         state.base_tools = [t for t in preloaded if not (payment is not None and t.kind == "proxied")]
     else:
+        reservation = ToolReservation()
         api = make_api(settings, token, "MCP")
         try:
             state.base_tools = await load_tools(
-                settings, selection or Selection(None, None), api, payment_active=payment is not None
+                settings,
+                selection or Selection(None, None),
+                api,
+                payment_active=payment is not None,
+                reservation=reservation,
             )
+        except BaseException:
+            reservation.release()
+            raise
         finally:
             await api.aclose()
+        state.tool_reservation = reservation
+        # Backstop: a state dropped without release_tools() still gives its bytes back.
+        weakref.finalize(state, reservation.release)
     state.mode = resolve_mode(ui_option, None, settings.widgets_enabled) if ui_option != "auto" else "default"
     recompose(state)
     return state

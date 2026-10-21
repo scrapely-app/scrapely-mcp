@@ -102,6 +102,17 @@ def utf8_len(text: str) -> int:
     return len(text.encode("utf-8"))
 
 
+def json_size(value: Any) -> int:
+    """UTF-8 size of the compact JSON form of `value` (what it costs to keep or send)."""
+    return utf8_len(compact_json(value))
+
+
+def truncate_text(value: str, limit: int, note: str = " [truncated]") -> str:
+    if len(value) <= limit:
+        return value
+    return value[:limit] + note
+
+
 K = TypeVar("K")
 V = TypeVar("V")
 

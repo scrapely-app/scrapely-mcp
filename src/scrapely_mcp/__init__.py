@@ -5,7 +5,7 @@ from importlib import metadata as _metadata
 try:
     __version__ = _metadata.version("scrapely-mcp")
 except _metadata.PackageNotFoundError:  # running from a source tree without install
-    __version__ = "0.2.1"
+    __version__ = "0.3.2"
 
 SERVER_NAME = "scrapely-mcp-server"
 SERVER_TITLE = "Scrape.ly"

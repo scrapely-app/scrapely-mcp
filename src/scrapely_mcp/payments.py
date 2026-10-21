@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
+import hmac
+import ipaddress
 import json
 import time
 from typing import Any
@@ -18,6 +21,7 @@ from .log import log, register_secret
 SKYFIRE_FIELD = "skyfire-pay-id"
 PROTOCOL_HEADER = "x-scrapely-payment-protocol"
 LEGACY_PROTOCOL_HEADER = "x-apify-payment-protocol"
+CLIENT_IP_HEADER = "x-scrapely-mcp-client-ip"
 X402_META = "x402/payment"
 REQUIREMENTS_TTL = 1800.0
 REQUIREMENTS_TIMEOUT = 8.0
@@ -38,6 +42,27 @@ def _protocol_headers(settings: Settings, value: str) -> dict[str, str]:
     if settings.send_legacy_payment_header:
         headers[LEGACY_PROTOCOL_HEADER] = value
     return headers
+
+
+def _client_ip_headers(settings: Settings, headers: dict[str, str]) -> dict[str, str]:
+    """The caller's IP, signed for the API server's x402 attempt limiter.
+
+    The IP is the last X-Forwarded-For entry, which the API server's /mcp
+    proxy sets to the client address it resolved. Empty without the secret
+    or a valid IP.
+    """
+    secret = settings.client_ip_secret
+    xff = next((v for k, v in headers.items() if k.lower() == "x-forwarded-for"), "")
+    ip = xff.split(",")[-1].strip()
+    if not secret or not ip:
+        return {}
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        return {}
+    issued = str(int(time.time() * 1000))
+    mac = hmac.new(secret.encode(), f"v1:{issued}:{ip}".encode(), hashlib.sha256).hexdigest()
+    return {CLIENT_IP_HEADER: f"v1:{issued}:{mac}:{ip}"}
 
 
 class PaymentProvider:
@@ -239,7 +264,11 @@ class X402Provider(PaymentProvider):
         if not signature:
             return None, await self._required_result()
         register_secret(signature)
-        return {"PAYMENT-SIGNATURE": signature, **_protocol_headers(self.settings, "x402")}, None
+        return {
+            "PAYMENT-SIGNATURE": signature,
+            **_protocol_headers(self.settings, "x402"),
+            **_client_ip_headers(self.settings, headers),
+        }, None
 
     def payment_required_from_error(self, data: Any) -> dict | None:
         return data if isinstance(data, dict) else {}

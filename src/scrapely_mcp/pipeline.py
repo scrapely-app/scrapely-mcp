@@ -13,6 +13,7 @@ from . import config, telemetry
 from .core import CallContext, SessionState, ToolDef, make_api, text
 from .errors import ApiError, ToolError, ValidationFailure
 from .log import log, redact
+from .util import json_size
 
 # Spec names plus the equivalents the Scrape.ly API documents publicly.
 RUN_LIMIT_TYPES = {"cannot-start-actor-runs", "concurrency-limit-exceeded"}
@@ -56,6 +57,19 @@ def find_tool(state: SessionState, name: str) -> ToolDef | None:
     if tool is None and "-slash-" in name:
         tool = state.tools.get(name.replace("-slash-", "--"))
     return tool
+
+
+def too_large_result(name: str, size: int, limit: int) -> dict:
+    return {
+        "content": [
+            text(
+                f"The result of tool {name} was {size:,} bytes, over the {limit:,} byte limit for one tool result. "
+                "Request less data (a smaller limit, fewer fields or a narrower input), or download large stored "
+                "data through the Scrape.ly API instead."
+            )
+        ],
+        "isError": True,
+    }
 
 
 def unknown_tool_result(name: str) -> dict:
@@ -217,7 +231,7 @@ async def call_tool(
     validation: dict | None = None
     try:
         try:
-            args = tool.validator.validate(args)
+            args = await tool.validator.validate_async(args)
         except ValidationFailure as vf:
             first = vf.errors[0]
             path = first["instancePath"] or "(root)"
@@ -278,6 +292,14 @@ async def call_tool(
             await api.aclose()
     if isinstance(result, dict):
         result = {k: v for k, v in result.items() if not k.startswith("_telemetry")}
+        limit = state.settings.max_tool_result_bytes
+        size = json_size(result)
+        if size > limit:
+            log.soft_fail(
+                "tool result is over the byte limit, returning an error instead", tool=tool.name, size=size, limit=limit
+            )
+            result = too_large_result(tool.name, size, limit)
+            status, category, detail = "SOFT_FAIL", "INVALID_INPUT", "result-too-large"
         result = add_nudge(result, state, tool.name, category, http_status)
     _emit_telemetry(state, tool, result, status, category, http_status, detail, validation, args, cc, started)
     return result

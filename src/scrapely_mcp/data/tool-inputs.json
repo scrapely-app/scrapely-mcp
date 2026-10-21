@@ -1,5 +1,5 @@
 {
-  "$comment": "Input schemas for every built-in tool, authored for the clean-room spec. Keys, types, bounds, defaults and required lists are binding (clients depend on them). Human-readable 'description' and 'title' texts are deliberately absent: the implementer writes them fresh, following the facts listed per tool in SPEC.md section 7.",
+  "$comment": "Derived from the tool schemas of apify-mcp-server (MIT, Copyright (c) 2025 Apify), via scrapely-mcp 0.1.x; see NOTICE for the full license text. Modified by TeraShift GmbH: descriptions removed, names changed, properties removed and tools added. Input schemas for every built-in tool. Keys, types, bounds, defaults and required lists are binding (clients depend on them). Human-readable 'description' and 'title' texts are deliberately absent: the implementer writes them fresh, following the facts listed per tool in SPEC.md section 7.",
 
   "search-actors": {
     "type": "object",
@@ -105,7 +105,7 @@
       "datasetId": { "type": "string", "minLength": 1 },
       "clean": { "type": "boolean" },
       "offset": { "type": "number" },
-      "limit": { "type": "integer", "minimum": 1 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 1000 },
       "fields": { "type": "string" },
       "omit": { "type": "string" },
       "desc": { "type": "boolean" },
@@ -136,7 +136,7 @@
     "type": "object",
     "properties": {
       "datasetId": { "type": "string", "minLength": 1 },
-      "limit": { "type": "integer", "default": 5 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 5 },
       "clean": { "type": "boolean", "default": true }
     },
     "required": ["datasetId"],
@@ -243,6 +243,48 @@
     "type": "object",
     "properties": { "taskId": { "type": "string", "minLength": 1 } },
     "required": ["taskId"],
+    "additionalProperties": false
+  },
+
+  "list-saved-inputs": {
+    "type": "object",
+    "properties": {
+      "actorId": { "type": "string" },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+      "offset": { "type": "integer", "minimum": 0, "default": 0 }
+    },
+    "additionalProperties": false
+  },
+
+  "run-saved-input": {
+    "type": "object",
+    "properties": {
+      "savedInputId": { "type": "string", "minLength": 1 },
+      "input": { "type": "object" },
+      "waitSecs": { "type": "integer", "minimum": 0, "maximum": 45, "default": 0 }
+    },
+    "required": ["savedInputId"],
+    "additionalProperties": false
+  },
+
+  "list-automations": {
+    "type": "object",
+    "properties": {
+      "actorId": { "type": "string" },
+      "savedInputId": { "type": "string" },
+      "search": { "type": "string" },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+      "offset": { "type": "integer", "minimum": 0, "default": 0 }
+    },
+    "additionalProperties": false
+  },
+
+  "run-automation": {
+    "type": "object",
+    "properties": {
+      "automationId": { "type": "string", "minLength": 1 }
+    },
+    "required": ["automationId"],
     "additionalProperties": false
   },
 
