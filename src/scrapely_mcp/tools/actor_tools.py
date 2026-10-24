@@ -106,7 +106,7 @@ async def search_actors(cc: CallContext, args: dict) -> dict:
     body = header + "\n\n" + "\n\n".join(texts) + "\n\n" + footer
     if console:
         body += "\nShow the URLs to the user exactly as written."
-    structured = {"actors": cards, "query": query, "count": len(cards), "userTier": tier, "instructions": footer}
+    structured = {"actors": cards, "query": query, "count": len(cards), "instructions": footer}
     return ok(structured, [body])
 
 

@@ -8,7 +8,6 @@
       "type": "object",
       "properties": {
         "model": { "type": "string", "$comment": "FREE | PRICE_PER_DATASET_ITEM | FLAT_PRICE_PER_MONTH | PAY_PER_EVENT" },
-        "userTier": { "$ref": "#/$defs/PricingTier", "$comment": "complete mode only" },
         "pricePerUnit": { "type": "number" },
         "unitName": { "type": "string" },
         "trialMinutes": { "type": "number" },
@@ -31,7 +30,11 @@
             }
           }
         },
-        "pricingNote": { "type": "string" },
+        "pricingNote": { "type": "string", "$comment": "list price (the same on every plan) or plan-dependent price" },
+        "chargeUnit": { "type": "string", "$comment": "PAY_PER_EVENT: title of the event the price is quoted by (the primary event)" },
+        "chargedPerResult": { "type": "boolean", "$comment": "PAY_PER_EVENT: true = the chargeUnit is one per result (dataset row); false = another unit (a page, a minute of audio)" },
+        "usdPer1000Results": { "type": "number", "$comment": "PAY_PER_EVENT, chargedPerResult only: price of 1,000 results" },
+        "chargeUnitPriceUsd": { "type": "number", "$comment": "simplified mode, chargedPerResult false only: price of one chargeUnit" },
         "eventDescriptionsOmitted": { "type": "boolean" },
         "eventDescriptionsNote": { "type": "string" },
         "platformUsageIncluded": {
@@ -87,7 +90,24 @@
           "type": "object",
           "properties": {
             "type": { "type": "string" },
-            "properties": { "type": "object", "additionalProperties": { "type": "object", "properties": { "type": {} }, "required": ["type"] } },
+            "properties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "type": {},
+                  "description": { "type": "string" },
+                  "editor": { "type": "string" },
+                  "default": {},
+                  "prefill": {},
+                  "enum": { "type": "array" },
+                  "enumTotal": { "type": "number" },
+                  "itemsType": { "type": "string" },
+                  "isSecret": { "type": "boolean" }
+                },
+                "required": ["type"]
+              }
+            },
             "required": { "type": "array", "items": { "type": "string" } }
           },
           "required": ["type", "properties"]
@@ -202,7 +222,6 @@
       "actors": { "type": "array", "items": { "$ref": "#/$defs/ActorCard" } },
       "query": { "type": "string" },
       "count": { "type": "number" },
-      "userTier": { "$ref": "#/$defs/PricingTier" },
       "instructions": { "type": "string" }
     },
     "required": ["actors", "query", "count"]

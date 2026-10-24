@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.5] - 2026-10-24
+
+- `search-actors` cards list each Actor's input fields: name, type, whether it is required, a short description, the
+  default and example (prefill) values and the allowed values (`enum`), from the input schema of the build users run.
+  Before, the cards never had input fields: the API ignored `includeInputSchema`. The card text shows one line per
+  field within about 1,500 characters (required fields first) and lists the other fields by name; descriptions are
+  cut at 100 characters, values over 120 characters and long enums are left out (`enumTotal` says how many values
+  there are). Secret fields (`isSecret`) never show a value, hidden fields are left out. The full schema stays in
+  `fetch-actor-details`. An example (prefill) equal to the default is not repeated.
+- Pay-per-event prices lead with one comparable number: "$2.00 per 1,000 results", with the billed unit as a note when it
+  is not called a result ("$0.50 per 1,000 results (charged per Review scraped)"). An event that is not one per result
+  (`primaryEventPerResult: false` or the event's `perResult: false`, such as a page of a document or a minute of audio)
+  keeps its own unit: "$0.0015 per Scraped page (not per result)". New pricing fields: `chargeUnit`,
+  `chargedPerResult`, `usdPer1000Results`, and in search cards `chargeUnitPriceUsd`. Prices and charges are unchanged.
+- `userTier` is gone from `search-actors` and from `fetch-actor-details` pricing. It echoed the caller's plan size and
+  changed no price. Prices now say "List price, the same on every plan", or, for events with a Store discount, that the
+  plan's Store discount comes off when billed. Plan-dependent prices (none in the Store today) say so.
+- Platform usage is quoted "at your plan's rates" (compute and proxy rates differ by plan).
+
 ## [0.3.4] - 2026-10-24
 
 - `search-actors` (and `search-actors-widget`) rank with the Store's shared ranking (`sortBy=recommended`), the
