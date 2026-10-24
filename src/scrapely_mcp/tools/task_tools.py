@@ -34,9 +34,9 @@ def resolve_ref(value: str, *, is_task: bool) -> tuple[str, bool]:
 def validate_name(name: Any) -> None:
     if name is None:
         return
-    if not isinstance(name, str) or not (3 <= len(name) <= 63) or not _NAME_RE.match(name):
+    if not isinstance(name, str) or not (3 <= len(name) <= 30) or not _NAME_RE.match(name):
         raise ToolError(
-            f"Invalid task name '{name}'. Task names are 3 to 63 characters, use only letters, digits and dashes, "
+            f"Invalid task name '{name}'. Task names are 3 to 30 characters, use only letters, digits and dashes, "
             "and cannot start or end with a dash."
         )
 

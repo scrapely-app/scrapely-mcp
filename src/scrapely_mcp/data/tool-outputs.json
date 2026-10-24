@@ -33,7 +33,19 @@
         },
         "pricingNote": { "type": "string" },
         "eventDescriptionsOmitted": { "type": "boolean" },
-        "eventDescriptionsNote": { "type": "string" }
+        "eventDescriptionsNote": { "type": "string" },
+        "platformUsageIncluded": {
+          "type": "boolean",
+          "$comment": "PAY_PER_EVENT only: true = compute, proxy and browser usage is included in the event prices; false = billed on top"
+        },
+        "estUsageUsdPer1000": {
+          "type": "number",
+          "$comment": "metered PAY_PER_EVENT only: typical platform usage per 1,000 results (last 30 days, Free plan rates)"
+        },
+        "estTotalUsdPer1000": {
+          "type": "number",
+          "$comment": "per-result event price x 1,000 plus estUsageUsdPer1000 (included: the event price alone)"
+        }
       },
       "required": ["model"]
     },
@@ -56,7 +68,7 @@
         "pricing": { "$ref": "#/$defs/Pricing" },
         "stats": {
           "type": "object",
-          "properties": { "totalUsers": { "type": "number" }, "monthlyUsers": { "type": "number" }, "bookmarks": { "type": "number" } }
+          "properties": { "monthlyUsers": { "type": "number" } }
         },
         "rating": { "type": "object", "properties": { "average": { "type": "number" }, "count": { "type": "number" } } },
         "modifiedAt": { "type": "string" },
@@ -412,7 +424,7 @@
         "pictureUrl": { "type": "string" },
         "stats": {
           "type": "object",
-          "properties": { "actorReviewRating": { "type": "number" }, "actorReviewCount": { "type": "number" }, "totalUsers": { "type": "number" } }
+          "properties": { "actorReviewRating": { "type": "number" }, "actorReviewCount": { "type": "number" }, "monthlyUsers": { "type": "number" } }
         },
         "url": { "type": "string" },
         "currentPricingInfo": { "$ref": "#/$defs/Pricing" }

@@ -88,6 +88,109 @@ def model_of(info: dict | None) -> str:
     return str(info.get("pricingModel") or "FREE")
 
 
+# -- platform usage --------------------------------------------------------
+# isPPEPlatformUsagePaidByUser false (official Actors): the event prices include the
+# run's compute, proxy and browser usage. Absent or true: usage is billed on top.
+# usageEstimate (metered paid Actors): measured usage at Free-plan rates, last 30 days.
+
+
+def usage_included(actor: dict, info: dict | None = None) -> bool:
+    info = current_pricing(actor) if info is None else info
+    if model_of(info) != "PAY_PER_EVENT" or not info:
+        return False
+    cur = actor.get("currentPricingInfo")
+    flag = cur.get("isPPEPlatformUsagePaidByUser") if isinstance(cur, dict) else None
+    if not isinstance(flag, bool):
+        flag = info.get("isPPEPlatformUsagePaidByUser")
+    return flag is False
+
+
+def usage_per_1000(actor: dict) -> float | int | None:
+    est = actor.get("usageEstimate")
+    value = _num(est.get("usdPer1000Median")) if isinstance(est, dict) else None
+    return value if value is not None and value > 0 else None
+
+
+def _primary_result_price(info: dict, user_tier: str) -> float | int | None:
+    """Price of the event charged once per result, for a per-1,000-results total."""
+    if info.get("primaryEventPerResult") is False:
+        return None
+    ppe = info.get("pricingPerEvent")
+    events = ppe.get("actorChargeEvents") if isinstance(ppe, dict) else None
+    if not isinstance(events, dict) or not events:
+        return None
+    name = info.get("primaryEventName")
+    if not name:
+        if "scrapely-default-dataset-item" in events:
+            name = "scrapely-default-dataset-item"
+        elif len(events) == 1:
+            name = next(iter(events))
+    ev = events.get(name) if name else None
+    if not isinstance(ev, dict):
+        return None
+    tiers = _tier_map(ev.get("eventTieredPricingUsd"), "tieredEventPriceUsd")
+    price = _choose(tiers, user_tier)[1] if tiers else _num(ev.get("eventPriceUsd"))
+    return price if price is not None and price > 0 else None
+
+
+def usage_fields(actor: dict, info: dict | None, user_tier: str) -> dict[str, Any]:
+    """platformUsageIncluded, estUsageUsdPer1000 and estTotalUsdPer1000 for a pay-per-event Actor."""
+    if model_of(info) != "PAY_PER_EVENT" or not info:
+        return {}
+    included = usage_included(actor, info)
+    out: dict[str, Any] = {"platformUsageIncluded": included}
+    primary = _primary_result_price(info, user_tier)
+    usage = None if included else usage_per_1000(actor)
+    if usage is not None:
+        out["estUsageUsdPer1000"] = round(usage, 4)
+    if primary is not None and (included or usage is not None):
+        out["estTotalUsdPer1000"] = round(primary * 1000 + (usage or 0), 4)
+    return out
+
+
+def _usd(value: float | int) -> str:
+    if value >= 0.01:
+        return f"${value:,.2f}"
+    return f"${fmt_number(round(float(value), 6))}"
+
+
+def usage_text(fields: dict) -> str:
+    """Complete mode: one sentence on platform usage for a pay-per-event Actor."""
+    if "platformUsageIncluded" not in fields:
+        return ""
+    total = fields.get("estTotalUsdPer1000")
+    if fields["platformUsageIncluded"]:
+        text = (
+            "Platform usage (compute, proxy, browser) is included in the price; "
+            "AI (LLM) tokens, if the Actor uses them, are billed separately."
+        )
+        if total is not None:
+            text += f" About {_usd(total)} per 1,000 results in total."
+        return text
+    usage = fields.get("estUsageUsdPer1000")
+    text = "Plus platform usage (compute, storage, proxy), billed separately"
+    if usage is not None:
+        text += f": typically about {_usd(usage)} per 1,000 results"
+        if total is not None:
+            text += f", so about {_usd(total)} per 1,000 results in total"
+    return text + "."
+
+
+def _usage_short(p: dict) -> str:
+    """Simplified mode: the platform usage tail of the one-line price."""
+    if "platformUsageIncluded" not in p:
+        return ""
+    total = p.get("estTotalUsdPer1000")
+    if p["platformUsageIncluded"]:
+        tail = f" (about {_usd(total)} per 1,000 results in total)" if total is not None else ""
+        return "; platform usage included" + tail
+    usage = p.get("estUsageUsdPer1000")
+    if usage is None:
+        return "; plus platform usage"
+    tail = f"; about {_usd(total)} per 1,000 results in total" if total is not None else ""
+    return f"; plus platform usage (typically {_usd(usage)} per 1,000 results{tail})"
+
+
 # -- complete mode -------------------------------------------------------
 
 
@@ -145,9 +248,12 @@ def complete_pricing(actor: dict, user_tier: str) -> tuple[dict, str]:
             desc = f" ({ev['description']})" if ev["description"] else ""
             lines.append(f"- {ev['title']}{desc}: {text_price}")
         data["events"] = out_events
+        usage = usage_fields(actor, info, user_tier)
+        data.update(usage)
+        note = usage_text(usage)
         if not events:
-            return data, "Pay per event: event pricing is not available."
-        return data, "Pay per event:\n" + "\n".join(lines)
+            return data, "Pay per event: event pricing is not available." + (f" {note}" if note else "")
+        return data, "Pay per event:\n" + "\n".join(lines) + (f"\n{note}" if note else "")
     return data, "Pricing information is not available."
 
 
@@ -209,6 +315,7 @@ def simplified_pricing(actor: dict, user_tier: str) -> dict:
                 item["priceUsd"] = ev["price"]
             out.append(item)
         data["events"] = out
+        data.update(usage_fields(actor, info, user_tier))
         if omit:
             data["eventDescriptionsOmitted"] = True
             data["eventDescriptionsNote"] = (
@@ -234,11 +341,11 @@ def simplified_text(p: dict) -> str:
     if model == "PAY_PER_EVENT":
         evs = p.get("events") or []
         if not evs:
-            return "pay per event"
+            return "pay per event" + _usage_short(p)
         parts = []
         for ev in evs[:5]:
             price = ev.get("priceUsd")
             parts.append(f"{ev.get('title')}: ${fmt_number(price)}" if price is not None else str(ev.get("title")))
         more = f" (+{len(evs) - 5} more)" if len(evs) > 5 else ""
-        return "pay per event: " + "; ".join(parts) + more
+        return "pay per event: " + "; ".join(parts) + more + _usage_short(p)
     return "not available"

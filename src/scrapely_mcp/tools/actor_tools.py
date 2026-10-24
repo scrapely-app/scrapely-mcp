@@ -124,7 +124,7 @@ async def search_actors_widget(cc: CallContext, args: dict) -> dict:
                 "stats": {
                     "actorReviewRating": stats.get("actorReviewRating", item.get("avgRating")) or 0,
                     "actorReviewCount": stats.get("actorReviewCount", item.get("totalReviews")) or 0,
-                    "totalUsers": stats.get("totalUsers") or 0,
+                    "monthlyUsers": stats.get("totalUsers30Days") or 0,
                 },
                 "url": f"{cc.settings.store_url}/{username}/{name}",
                 "currentPricingInfo": simplified_pricing(item, tier),

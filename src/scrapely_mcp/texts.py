@@ -109,7 +109,8 @@ def call_actor(n: Names, mode: str) -> str:
     parts.append("When a dedicated tool exists for an Actor, prefer it over this tool.")
     parts.append(
         "callOptions: `build` only applies to your own Actors (other Actors always run their publisher's "
-        "build); `memory` is in MB (128 to 32768); `timeout` is in seconds (0 means no limit). `maxItems` "
+        "build); `memory` is in MB, from 128 up to your plan's maximum for one run (at most 32768; a larger value is "
+        "refused); `timeout` is in seconds (0 means no limit). `maxItems` "
         "caps the billed results of pay-per-result Actors and `maxTotalChargeUsd` caps the total charge of "
         "pay-per-event Actors; neither stops the Actor from working, so prefer the Actor's own limit fields. "
         "Your plan also limits the total memory of concurrent runs."
@@ -210,7 +211,8 @@ def get_key_value_store_keys(n: Names, mode: str) -> str:
 def get_key_value_store_record(n: Names, mode: str) -> str:
     return (
         "Read one record of a key-value store by its exact key (this does not list keys). JSON, text and "
-        "binary records are supported; binary records above 256 KiB are returned as a download link."
+        "binary records are supported; binary records above 256 KiB, and records too large to read here (above 1 MiB "
+        "by default), are returned as a download link."
     )
 
 
@@ -221,7 +223,7 @@ def get_key_value_store_list(n: Names, mode: str) -> str:
     )
 
 
-_TASK_NAME_RULE = "Task names are 3 to 63 letters, digits or dashes and cannot start or end with a dash."
+_TASK_NAME_RULE = "Task names are 3 to 30 letters, digits or dashes and cannot start or end with a dash."
 
 
 def create_actor_task(n: Names, mode: str) -> str:
@@ -295,8 +297,8 @@ def search_docs(n: Names, mode: str) -> str:
 
 def fetch_docs(n: Names, mode: str) -> str:
     return (
-        "Fetch the full text of a documentation page as Markdown. Only https URLs on docs.scrape.ly and "
-        "crawlee.dev are allowed."
+        "Fetch the full text of a documentation page as Markdown. Only https URLs of Scrape.ly docs pages "
+        "(https://scrape.ly/docs/...) and crawlee.dev pages are allowed."
     )
 
 

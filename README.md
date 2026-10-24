@@ -5,15 +5,17 @@ access to a Scrape.ly account: search the Store for Actors, read their README an
 runs, and read the results from datasets, key-value stores and logs. It can also manage saved tasks and search the
 Scrape.ly and Crawlee documentation.
 
+Full documentation: [scrape.ly/docs/mcp](https://scrape.ly/docs/mcp).
+
 The same package runs in two ways:
 
 - **Hosted**: `scrapely-mcp-http`, a multi-tenant streamable HTTP server. Scrape.ly runs it behind the API at
-  `https://api.scrape.ly/mcp`. Most users connect to that URL and never install anything.
+  `https://mcp.scrape.ly`. Most users connect to that URL and never install anything.
 - **Local**: `scrapely-mcp-server`, a stdio server started by a desktop MCP client on your machine.
 
 ## Connect to the hosted server
 
-Point your client at `https://api.scrape.ly/mcp`.
+Point your client at `https://mcp.scrape.ly`.
 
 - Clients that support MCP authorization find the OAuth flow on their own and ask you to sign in.
 - Otherwise send your API token as a header: `Authorization: Bearer <token>`.
@@ -26,7 +28,7 @@ Example for a client that takes a JSON config:
 {
   "mcpServers": {
     "scrapely": {
-      "url": "https://api.scrape.ly/mcp",
+      "url": "https://mcp.scrape.ly",
       "headers": { "Authorization": "Bearer YOUR_TOKEN" }
     }
   }
@@ -84,6 +86,10 @@ default.
 | tasks | `create-actor-task`, `get-actor-task`, `update-actor-task`, `publish-actor-task`, `unpublish-actor-task` |
 | automations | `list-saved-inputs`, `run-saved-input`, `list-automations`, `run-automation` |
 | dev | `report-problem` |
+
+`search-scrapely-docs` searches the Scrape.ly docs at [scrape.ly/docs](https://scrape.ly/docs) by default
+(`docSource: "scrapely"`), or the Crawlee docs (`crawlee-js`, `crawlee-py`). `fetch-scrapely-docs` returns a page as
+Markdown; it accepts pages under `https://scrape.ly/docs` and `https://crawlee.dev`.
 
 Whenever `call-actor`, `get-actor-run` or an Actor tool is enabled, `get-actor-run`, `get-actor-output`,
 `get-dataset-items`, `get-key-value-store-record` and `abort-actor-run` are added as well.
@@ -155,7 +161,7 @@ A container image definition is in `Dockerfile` (`docker build --build-arg SOURC
 | `SCRAPELY_MCP_TASK_RETENTION_SECS` | `900` | Finished tasks are dropped this long after they finish (or after their `ttl`) |
 | `SCRAPELY_MCP_REPORT_PROBLEM_BLOCKED_CLIENTS` | `anthropic,claude` | Clients that do not see `report-problem` |
 | `SCRAPELY_OFFICIAL_USERNAMES` | `scrapely` | Usernames shown as official |
-| `SCRAPELY_DOCS_ALGOLIA_APP_ID` / `_API_KEY` / `_INDEX` | empty | Scrape.ly docs search index |
+| `SCRAPELY_DOCS_URL` | `https://scrape.ly/docs` | Scrape.ly docs: searched through its `search-index.json`, pages read as Markdown |
 | `SCRAPELY_DOCS_CRAWLEE_JS_*`, `SCRAPELY_DOCS_CRAWLEE_PY_*` | public Crawlee DocSearch values | Crawlee docs search |
 | `SCRAPELY_CONSOLE_BASE_URL` / `SCRAPELY_CONSOLE_TOKEN_PREFIX` | disabled | Personalised dashboard links |
 | `SCRAPELY_MCP_WIDGETS_ENABLED` / `SCRAPELY_MCP_WIDGET_ASSETS_DIR` | off | MCP Apps widgets (experimental) |

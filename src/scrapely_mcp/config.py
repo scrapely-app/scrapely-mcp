@@ -14,6 +14,8 @@ from urllib.parse import urlsplit
 DEFAULT_PUBLIC_API_ORIGIN = "https://api.scrape.ly"
 DEFAULT_SITE_ORIGIN = "https://scrape.ly"
 DEFAULT_STORE_URL = "https://scrape.ly/store"
+# The public Scrape.ly docs: search reads <docs>/search-index.json, fetch reads <docs>/<page>.md.
+DEFAULT_DOCS_URL = "https://scrape.ly/docs"
 DEFAULT_REPORT_PROBLEM_BLOCKED = "anthropic,claude"
 DEFAULT_OFFICIAL_USERNAMES = "scrapely"
 
@@ -169,6 +171,7 @@ class Settings:
     # Shared with the API server (MCP_CLIENT_IP_SECRET). Signs the caller's IP
     # on x402 calls so the server's x402 attempt limit counts each caller.
     client_ip_secret: str | None = None
+    docs_url: str = DEFAULT_DOCS_URL
     docs_sources: dict[str, DocSourceConfig] = field(default_factory=dict)
 
     @property
@@ -253,6 +256,7 @@ def load_settings() -> Settings:
         widget_resource_domains=resource_domains,
         send_legacy_payment_header=env_bool("SCRAPELY_SEND_LEGACY_PAYMENT_HEADER", True),
         client_ip_secret=(_env("SCRAPELY_MCP_CLIENT_IP_SECRET") or "").strip() or None,
+        docs_url=strip_slash(_env("SCRAPELY_DOCS_URL") or DEFAULT_DOCS_URL),
         docs_sources=_load_doc_sources(),
     )
 
@@ -265,7 +269,6 @@ def _load_doc_sources() -> dict[str, DocSourceConfig]:
             (_env(f"{prefix}_INDEX", index) or "").strip(),
         )
 
-    s_app, s_key, s_index = env3("SCRAPELY_DOCS_ALGOLIA", "", "", "")
     js_app, js_key, js_index = env3(
         "SCRAPELY_DOCS_CRAWLEE_JS", "5JC94MPMLY", "267679200b833c2ca1255ab276731869", "crawlee"
     )
@@ -273,7 +276,6 @@ def _load_doc_sources() -> dict[str, DocSourceConfig]:
         "SCRAPELY_DOCS_CRAWLEE_PY", "5JC94MPMLY", "878493fcd7001e3c179b6db6796a999b", "crawlee_python"
     )
     return {
-        "scrapely": DocSourceConfig("scrapely", s_app, s_key, s_index, filters="version:latest"),
         "crawlee-js": DocSourceConfig(
             "crawlee-js",
             js_app,

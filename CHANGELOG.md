@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.3] - 2026-10-24
+
+- Actor prices in `search-actors` and `fetch-actor-details` say how platform usage is billed for pay-per-event Actors.
+  If an official Actor's price includes the usage (`isPPEPlatformUsagePaidByUser: false`), the price says "platform
+  usage included". Every other pay-per-event Actor says "plus platform usage". When the API sends a `usageEstimate`,
+  that line adds the typical usage per 1,000 results and the estimated total per 1,000 results. New pricing fields:
+  `platformUsageIncluded`, `estUsageUsdPer1000`, `estTotalUsdPer1000`. Before, pay-per-event prices listed only the
+  events.
+- `search-scrapely-docs` now searches the Scrape.ly docs (the default `docSource: "scrapely"`). It reads the docs
+  site's own search index (`https://scrape.ly/docs/search-index.json`) and returns section links with snippets; before,
+  it failed with "not configured" unless an Algolia index was set, which no deployment had. The
+  `SCRAPELY_DOCS_ALGOLIA_*` variables are gone; `SCRAPELY_DOCS_URL` (default `https://scrape.ly/docs`) points both
+  docs tools at another copy of the docs.
+- `fetch-scrapely-docs` reads Scrape.ly pages under `https://scrape.ly/docs` (it only allowed `docs.scrape.ly`, a
+  host that does not exist). A URL that already ends in `.md` is fetched as it is.
+- Task names are limited to 30 characters (`create-actor-task`, `update-actor-task`), as the API enforces; the tools
+  said 63.
+- `call-actor` says that `memory` is capped by the plan's maximum for one run (a larger value is refused), and
+  `get-key-value-store-record` says that records above the read limit (1 MiB by default) also come back as a link.
+
 ## [0.3.2] - 2026-10-21
 
 Security patch release for local (stdio) users.

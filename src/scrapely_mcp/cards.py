@@ -114,12 +114,9 @@ def build_card(
             card["pricing"] = simplified_pricing(actor, user_tier)
             pricing_text = simplified_text(card["pricing"])
     stats = actor.get("stats") if isinstance(actor.get("stats"), dict) else {}
-    if "stats" in sections and _num(stats.get("totalUsers")) and _num(stats.get("totalUsers30Days")):
-        s: dict[str, Any] = {"totalUsers": stats["totalUsers"], "monthlyUsers": stats["totalUsers30Days"]}
-        bm = actor.get("bookmarkCount", stats.get("bookmarkCount"))
-        if _num(bm):
-            s["bookmarks"] = int(bm)
-        card["stats"] = s
+    # Monthly active users is the only public usage number (no run, total user or bookmark counts).
+    if "stats" in sections and _num(stats.get("totalUsers30Days")):
+        card["stats"] = {"monthlyUsers": stats["totalUsers30Days"]}
     if "rating" in sections:
         avg = _to_num(stats.get("actorReviewRating", actor.get("avgRating")))
         count = _to_num(stats.get("actorReviewCount", actor.get("totalReviews")))
@@ -154,9 +151,7 @@ def build_card(
         if note:
             lines.append(f"  {note}")
     if "stats" in card:
-        st = card["stats"]
-        extra = f", {st['bookmarks']} bookmarks" if "bookmarks" in st else ""
-        lines.append(f"- Users: {st['totalUsers']} total, {st['monthlyUsers']} in the last 30 days{extra}")
+        lines.append(f"- Monthly users: {card['stats']['monthlyUsers']}")
     if "rating" in card:
         lines.append(f"- Rating: {card['rating']['average']} from {card['rating']['count']} reviews")
     if "modifiedAt" in card:
