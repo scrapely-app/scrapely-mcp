@@ -160,7 +160,7 @@ A container image definition is in `Dockerfile` (`docker build --build-arg SOURC
 | `SCRAPELY_MCP_TASK_RESULT_GRACE_SECS` | `60` | A task result is released this long after `tasks/result` first returned it |
 | `SCRAPELY_MCP_TASK_RETENTION_SECS` | `900` | Finished tasks are dropped this long after they finish (or after their `ttl`) |
 | `SCRAPELY_MCP_REPORT_PROBLEM_BLOCKED_CLIENTS` | `anthropic,claude` | Clients that do not see `report-problem` |
-| `SCRAPELY_OFFICIAL_USERNAMES` | `scrapely` | Usernames shown as official |
+| `SCRAPELY_OFFICIAL_USERNAMES` | `scrapely` | Usernames shown as maintained by Scrape.ly, only when the API sends no `maintainedByScrapely` flag (older API servers) |
 | `SCRAPELY_DOCS_URL` | `https://scrape.ly/docs` | Scrape.ly docs: searched through its `search-index.json`, pages read as Markdown |
 | `SCRAPELY_DOCS_CRAWLEE_JS_*`, `SCRAPELY_DOCS_CRAWLEE_PY_*` | public Crawlee DocSearch values | Crawlee docs search |
 | `SCRAPELY_CONSOLE_BASE_URL` / `SCRAPELY_CONSOLE_TOKEN_PREFIX` | disabled | Personalised dashboard links |

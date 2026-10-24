@@ -54,15 +54,18 @@ TITLES = {
 def search_actors(n: Names, mode: str) -> str:
     return (
         "Look up Actors in the Scrape.ly Store by keyword. This only finds Actors: it does not run anything "
-        "and does not fetch any data. Store Actors are scrapers, crawlers, agents and MCP servers published "
-        "by independent developers for legitimate use.\n\n"
+        "and does not fetch any data. Store Actors are scrapers, crawlers, agents and MCP servers for "
+        "legitimate use; Actors maintained by Scrape.ly say so in their Developer line. Results are ranked by "
+        "fit, with Scrape.ly-maintained and tested Actors first.\n\n"
         "Keywords: use one to three plain words, ideally the platform name plus the kind of data "
         "(for example 'instagram posts' or 'google maps'). If the user named no platform or data type, pass "
         "an empty string to get the Store's default ordering, which is by popularity. Words such as 'best' "
         "or 'top' and bare task verbs like 'scrape' do not help the search.\n\n"
         "Run at least two searches: start broad (just the platform name), then narrow down. Each result is "
-        "a short summary that lists the Actor's input fields with their types; `name?: type` marks an "
-        "optional field. Only public Actors are searched."
+        "a short summary with the Actor's success rate (the share of its recent runs that succeeded) and its "
+        "input fields with their types; `name?: type` marks an optional field. Only public Actors are "
+        "searched. If no search finds a suitable Actor, tell the user that no Scrape.ly Actor does this yet "
+        "instead of picking an unrelated one."
         + _if(n, "fetch-actor-details", " Use fetch-actor-details for the full README and input schema.")
         + " When the user simply wants data right now, pick a general-purpose scraping Actor and run it."
     )
@@ -75,9 +78,10 @@ def fetch_actor_details(n: Names, mode: str) -> str:
         + (", find them with search-actors first" if "search-actors" in n else "")
         + ".\n\nThe `output` object picks what to return, which keeps responses small: description, stats, "
         "pricing, rating, metadata, inputSchema, readme, outputSchema and mcpTools. Without `output`, "
-        "everything except mcpTools (and the output schema) is returned. `readme` returns the Actor's README "
-        "summary when one exists, otherwise the full README. Set `mcpTools: true` to list the tools of an "
-        "MCP-server Actor."
+        "everything except mcpTools and outputSchema is returned. `readme` returns the Actor's README "
+        "summary when one exists, otherwise the README (a very long one is shortened by section; its pricing, "
+        "limits and FAQ sections are always kept). Set `outputSchema: true` for the fields each dataset item "
+        "of a run has. Set `mcpTools: true` to list the tools of an MCP-server Actor."
     )
 
 
@@ -423,7 +427,7 @@ def instructions(names: Names, mode: str, public_api_base: str, report_problem_a
         "An Actor takes JSON input and produces output.",
         "Before running an Actor, read its README and input schema with fetch-actor-details.",
         "Search the Scrape.ly Store first: a suitable Actor may already exist. When several fit, prefer ones "
-        "that are widely used and well rated. Store Actors are published by independent developers for "
+        "maintained by Scrape.ly, with a high success rate and many monthly users. Store Actors are for "
         "legitimate use.",
         "Every run has a default dataset and a default key-value store, which may be empty. Runs can take a "
         "while and their output can be large, so page through datasets instead of reading everything at once.",

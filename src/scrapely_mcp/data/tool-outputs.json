@@ -60,7 +60,13 @@
         "pictureUrl": { "type": "string" },
         "developer": {
           "type": "object",
-          "properties": { "username": { "type": "string" }, "isOfficial": { "type": "boolean" }, "url": { "type": "string" } },
+          "properties": {
+            "username": { "type": "string" },
+            "isOfficial": { "type": "boolean" },
+            "url": { "type": "string" },
+            "name": { "type": "string" },
+            "maintainedBy": { "type": "string" }
+          },
           "required": ["username", "isOfficial", "url"]
         },
         "description": { "type": "string" },
@@ -68,7 +74,11 @@
         "pricing": { "$ref": "#/$defs/Pricing" },
         "stats": {
           "type": "object",
-          "properties": { "monthlyUsers": { "type": "number" } }
+          "properties": {
+            "monthlyUsers": { "type": "number" },
+            "successRate": { "type": ["number", "null"] },
+            "successRateWindow": { "type": "string", "enum": ["currentBuild", "last30Days"] }
+          }
         },
         "rating": { "type": "object", "properties": { "average": { "type": "number" }, "count": { "type": "number" } } },
         "modifiedAt": { "type": "string" },
@@ -424,7 +434,13 @@
         "pictureUrl": { "type": "string" },
         "stats": {
           "type": "object",
-          "properties": { "actorReviewRating": { "type": "number" }, "actorReviewCount": { "type": "number" }, "monthlyUsers": { "type": "number" } }
+          "properties": {
+            "actorReviewRating": { "type": "number" },
+            "actorReviewCount": { "type": "number" },
+            "monthlyUsers": { "type": "number" },
+            "successRate": { "type": ["number", "null"] },
+            "successRateWindow": { "type": "string", "enum": ["currentBuild", "last30Days"] }
+          }
         },
         "url": { "type": "string" },
         "currentPricingInfo": { "$ref": "#/$defs/Pricing" }

@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.4] - 2026-10-24
+
+- `search-actors` (and `search-actors-widget`) rank with the Store's shared ranking (`sortBy=recommended`), the
+  same as the dashboard chat: it matches words in titles, descriptions, categories, output types and target sites,
+  counts partial matches and a few synonyms ("footage" finds video Actors), and puts Scrape.ly-maintained and tested
+  Actors first. Before, every word had to appear in the name, title or description and results were ordered by
+  popularity only: "stock footage" found nothing and "logo" put the logo finder third.
+- A search that finds nothing tells the agent to search once more and then tell the user that no Scrape.ly Actor
+  does this yet, instead of guessing.
+- Actor cards always carry the description, developer and categories, whichever `output` sections were asked for
+  (they were empty placeholders when only `stats` or `pricing` was requested).
+- Actor cards show the public success rate (`stats.successRate` and `stats.successRateWindow`: the share of the
+  Actor's finished runs that succeeded, for its current version or the last 30 days; `null` when it has too few
+  runs). The rating only appears when the Actor has real reviews. The server instructions say to prefer Actors
+  maintained by Scrape.ly with a high success rate, instead of "well rated" ones.
+- Actors of official Scrape.ly accounts say "Maintained by Scrape.ly" with the studio's name
+  (`developer.isOfficial`, `developer.name`, `developer.maintainedBy`), from the API's `maintainedByScrapely` flag.
+  `SCRAPELY_OFFICIAL_USERNAMES` is only used with an API that does not send the flag. Before, no Actor was ever
+  marked official, and the texts said Store Actors come from independent developers.
+- Long READMEs are shortened by section within about 12,000 characters (was a hard cut at 5,000): long examples and
+  tables are shortened first, the pricing, limits and FAQ sections are always kept, and the headings of any sections
+  left out are listed. Most Store READMEs now come back whole.
+- `fetch-actor-details` with `output.outputSchema` returns the Actor's output schema: the dataset item fields with
+  their types, labels and formats (from the dataset schema and its views), the dataset views and the named outputs.
+  It said "No output schema is available" for every Actor.
+- The widget's `stats.actorReviewRating` and `actorReviewCount` are always numbers.
+
 ## [0.3.3] - 2026-10-24
 
 - Actor prices in `search-actors` and `fetch-actor-details` say how platform usage is billed for pay-per-event Actors.

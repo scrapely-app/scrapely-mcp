@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import re
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urljoin, urlsplit
@@ -11,9 +12,11 @@ from urllib.parse import urljoin, urlsplit
 from .api import ApiClient
 from .identity import get_caller
 from .log import log
-from .util import TTLCache
+from .util import TTLCache, compact_json
 
-README_LIMIT = 5000
+# About 3,000 tokens: enough for the whole README of most Store Actors (median ~8,400 characters) while
+# keeping fetch-actor-details small. Longer READMEs are shortened by section (truncate_readme).
+README_LIMIT = 12_000
 DESCRIPTION_LIMIT = 500
 ENUM_CHAR_LIMIT = 2000
 TOOL_NAME_LIMIT = 64
@@ -51,18 +54,146 @@ class ActorDefinition:
         return tool_mode(self.standby_enabled, self.mcp_path, self.input_schema)
 
 
-def truncate_readme(text: str | None) -> str:
+# Sections an agent needs before it runs an Actor: what it costs, what it cannot do, common questions.
+# They are always kept (each up to KEPT_SECTION_LIMIT characters), wherever they are in the README.
+_KEEP_HEADING = re.compile(
+    r"pric|cost|billing|charge|limit|known issue|caveat|not support|faq|frequently asked|question|troubleshoot",
+    re.IGNORECASE,
+)
+KEPT_SECTION_LIMIT = 4_000
+# Code blocks and tables longer than these are shortened first: they are examples, rarely needed in full.
+CODE_BLOCK_LIMIT = 600
+TABLE_ROW_LIMIT = 8
+_FENCE = re.compile(r"^\s*(```|~~~)")
+_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+\S")
+
+
+@dataclass
+class _Section:
+    heading: str  # the heading line ("" for the text before the first heading)
+    body: str  # the whole section, heading line included
+
+    @property
+    def keep(self) -> bool:
+        return bool(self.heading) and bool(_KEEP_HEADING.search(self.heading))
+
+
+def _split_sections(text: str) -> list[_Section]:
+    """Split Markdown at headings (not at `#` lines inside code fences)."""
+    sections: list[_Section] = []
+    heading = ""
+    lines: list[str] = []
+    fenced = False
+    for line in text.splitlines(keepends=True):
+        if _FENCE.match(line):
+            fenced = not fenced
+        elif not fenced and _HEADING.match(line):
+            if lines:
+                sections.append(_Section(heading, "".join(lines)))
+            heading, lines = line.strip(), []
+        lines.append(line)
+    if lines:
+        sections.append(_Section(heading, "".join(lines)))
+    return sections
+
+
+def _shorten_blocks(text: str) -> str:
+    """Shorten long code blocks and long tables; prose is left as it is."""
+    out: list[str] = []
+    lines = text.splitlines(keepends=True)
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if _FENCE.match(line):
+            j = i + 1
+            while j < len(lines) and not _FENCE.match(lines[j]):
+                j += 1
+            block = lines[i + 1 : j]
+            body = "".join(block)
+            out.append(line)
+            if len(body) > CODE_BLOCK_LIMIT:
+                cut = body[:CODE_BLOCK_LIMIT]
+                cut = cut[: cut.rfind("\n") + 1] or cut
+                out.append(cut + "... (example shortened)\n")
+            else:
+                out.append(body)
+            if j < len(lines):
+                out.append(lines[j])
+            i = j + 1
+            continue
+        if line.lstrip().startswith("|"):
+            j = i
+            while j < len(lines) and lines[j].lstrip().startswith("|"):
+                j += 1
+            rows = lines[i:j]
+            # header + separator + TABLE_ROW_LIMIT rows
+            if len(rows) > TABLE_ROW_LIMIT + 2:
+                out.extend(rows[: TABLE_ROW_LIMIT + 2])
+                out.append(f"| ... {len(rows) - TABLE_ROW_LIMIT - 2} more rows |\n")
+            else:
+                out.extend(rows)
+            i = j
+            continue
+        out.append(line)
+        i += 1
+    return "".join(out)
+
+
+def _cap(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    nl = cut.rfind("\n")
+    if nl > limit // 2:
+        cut = cut[:nl]
+    return cut.rstrip() + "\n[section shortened]\n"
+
+
+def truncate_readme(text: str | None, limit: int = README_LIMIT) -> str:
+    """The README within about `limit` characters, shortened by section.
+
+    A README that fits is returned as it is. Otherwise long code blocks and tables are shortened first;
+    if it is still too long, the pricing, limits and FAQ sections are kept (wherever they are), the
+    other sections are kept in order while they fit, and the headings of the sections left out are
+    listed at the end, so the agent knows what it did not get.
+    """
     if not text:
         return ""
-    if len(text) <= README_LIMIT:
+    if len(text) <= limit:
         return text
-    head = text[:README_LIMIT]
-    rest = text[README_LIMIT:]
-    headings = [ln.strip() for ln in rest.splitlines() if ln.lstrip().startswith("#")]
-    out = head + "\n\n[README truncated at 5,000 characters.]"
-    if headings:
-        out += " Remaining sections:\n" + "\n".join(headings)
-    return out
+    sections = [_Section(s.heading, _shorten_blocks(s.body)) for s in _split_sections(text)]
+    shortened = "".join(s.body for s in sections)
+    note_examples = "Long examples and tables were shortened."
+    if len(shortened) <= limit:
+        return shortened.rstrip() + f"\n\n[README shortened from {len(text):,} characters. {note_examples}]"
+    for s in sections:
+        if s.keep:
+            s.body = _cap(s.body, KEPT_SECTION_LIMIT)
+    budget = limit - sum(len(s.body) for s in sections if s.keep)
+    kept: list[bool] = []
+    for idx, s in enumerate(sections):
+        if s.keep:
+            kept.append(True)
+            continue
+        if len(s.body) <= budget:
+            kept.append(True)
+            budget -= len(s.body)
+        elif idx == 0 and budget > 500:
+            # The introduction says what the Actor does: keep its start rather than nothing.
+            s.body = _cap(s.body, budget)
+            kept.append(True)
+            budget -= len(s.body)
+        else:
+            kept.append(False)
+    body = "".join(s.body for s, k in zip(sections, kept) if k)
+    left_out = [s.heading for s, k in zip(sections, kept) if not k and s.heading]
+    out = body.rstrip() + (
+        f"\n\n[README shortened from {len(text):,} characters. {note_examples} "
+        "Pricing, limits and FAQ sections are always kept."
+    )
+    if left_out:
+        out += " Sections left out:\n" + "\n".join(left_out)
+    return out + "]" if not left_out else out + "\n]"
 
 
 def parse_definition(actor: Any) -> ActorDefinition | None:
@@ -274,6 +405,75 @@ def details_input_schema(schema: Any) -> dict:
     out["properties"] = {n: reduce_property(p) if isinstance(p, dict) else p for n, p in props.items()}
     out.setdefault("type", "object")
     return out
+
+
+MAX_OUTPUT_FIELDS = 100
+
+
+def _obj(value: Any) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def output_schema_of(definition: Any) -> dict:
+    """What a run of the Actor writes, from its build's Actor definition (SPEC 7.3 outputSchema).
+
+    - `dataset`: the dataset item fields as a JSON schema (`properties`), from the dataset schema's
+      `fields` and the fields its views show, with their labels and formats.
+    - `datasetViews`: the dataset's views (name, title and fields), when it has any.
+    - `outputs`: the named outputs of the Actor's output schema (`.actor/output_schema.json`).
+    Empty when the Actor publishes none of them.
+    """
+    definition = _obj(definition)
+    out: dict[str, Any] = {}
+    dataset = _obj(_obj(definition.get("storages")).get("dataset"))
+    fields: dict[str, dict] = {}
+    for name, raw in _obj(_obj(dataset.get("fields")).get("properties")).items():
+        p = _obj(raw)
+        entry = {k: p[k] for k in ("type", "title", "description", "format") if p.get(k) not in (None, "")}
+        if "description" in entry:
+            entry["description"] = shorten_description(entry["description"])
+        fields[str(name)] = entry
+    views = []
+    for view_name, raw_view in _obj(dataset.get("views")).items():
+        view = _obj(raw_view)
+        names = [f for f in _obj(view.get("transformation")).get("fields") or [] if isinstance(f, str)]
+        display = _obj(_obj(view.get("display")).get("properties"))
+        for f in names:
+            entry = fields.setdefault(f, {})
+            shown = _obj(display.get(f))
+            if shown.get("label") and "title" not in entry:
+                entry["title"] = shown["label"]
+            if shown.get("format") and "format" not in entry:
+                entry["format"] = shown["format"]
+        if names:
+            item: dict[str, Any] = {"name": str(view_name), "fields": names}
+            if view.get("title"):
+                item["title"] = view["title"]
+            views.append(item)
+    if fields:
+        kept = dict(list(fields.items())[:MAX_OUTPUT_FIELDS])
+        out["dataset"] = {"type": "object", "properties": kept}
+        if len(fields) > MAX_OUTPUT_FIELDS:
+            out["dataset"]["fieldsTruncated"] = len(fields)
+    if views:
+        out["datasetViews"] = views
+    outputs = {}
+    for name, raw in _obj(_obj(definition.get("output")).get("properties")).items():
+        p = _obj(raw)
+        entry = {k: p[k] for k in ("title", "description") if p.get(k)}
+        outputs[str(name)] = entry
+    if outputs:
+        out["outputs"] = outputs
+    return out
+
+
+def output_schema_text(schema: dict) -> str:
+    lines = []
+    props = _obj(_obj(schema.get("dataset")).get("properties"))
+    if props:
+        lines.append("Each dataset item has these fields: " + ", ".join(props) + ".")
+    lines.append(compact_json(schema))
+    return "\n".join(lines)
 
 
 def _json_type(value: Any) -> str | None:

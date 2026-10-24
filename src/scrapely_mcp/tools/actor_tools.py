@@ -14,8 +14,10 @@ from ..actors import (
     details_input_schema,
     get_definition,
     mcp_server_url,
+    output_schema_of,
+    output_schema_text,
 )
-from ..cards import ALL_SECTIONS, build_card
+from ..cards import ALL_SECTIONS, build_card, success_rate
 from ..core import CallContext, ok, run_result, text
 from ..errors import ApiError, RemoteUnreachable, ToolError
 from ..log import log
@@ -56,6 +58,10 @@ async def _search(cc: CallContext, args: dict) -> tuple[list[dict], str, str]:
         "includeInputSchema": True,
         # Agents only see Actors whose owners allow agentic use (server default: allowed).
         "allowsAgenticUsers": "true",
+        # The Store's shared ranking (the same as the dashboard chat): words in titles, descriptions,
+        # categories, output types and target sites, partial matches, site names and synonyms, with
+        # Scrape.ly-maintained and tested Actors first. The default order is plain popularity.
+        "sortBy": "recommended",
     }
     items = await cc.api.store_search(params)
     caller = await cc.get_caller()
@@ -66,8 +72,9 @@ async def search_actors(cc: CallContext, args: dict) -> dict:
     items, query, tier = await _search(cc, args)
     if not items:
         instructions = (
-            "No Actors matched. Search again with broader keywords, for example only the platform name, "
-            "before concluding that no suitable Actor exists."
+            "No Actors matched. Search once more with broader keywords (only the platform name, or only the kind "
+            "of data). If that finds nothing suitable either, tell the user that no Scrape.ly Actor does this yet. "
+            "Do not guess an Actor name or offer an unrelated Actor instead."
         )
         return ok(
             {"actors": [], "query": query, "count": 0, "instructions": instructions},
@@ -103,6 +110,30 @@ async def search_actors(cc: CallContext, args: dict) -> dict:
     return ok(structured, [body])
 
 
+def _number(value: Any) -> float | int:
+    """A number from the API, which may send DECIMAL columns as strings ('0.0')."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _widget_stats(stats: dict, item: dict) -> dict:
+    out: dict[str, Any] = {
+        "actorReviewRating": _number(stats.get("actorReviewRating", item.get("avgRating"))),
+        "actorReviewCount": int(_number(stats.get("actorReviewCount", item.get("totalReviews")))),
+        "monthlyUsers": stats.get("totalUsers30Days") or 0,
+    }
+    sr = success_rate(stats)
+    if sr is not None:
+        out["successRate"] = sr["rate"]
+        if sr["window"]:
+            out["successRateWindow"] = sr["window"]
+    return out
+
+
 async def search_actors_widget(cc: CallContext, args: dict) -> dict:
     from ..pricing import simplified_pricing
 
@@ -121,11 +152,7 @@ async def search_actors_widget(cc: CallContext, args: dict) -> dict:
                 "title": item.get("title") or name,
                 "description": item.get("description") or "No description provided.",
                 "pictureUrl": item.get("pictureUrl") or "",
-                "stats": {
-                    "actorReviewRating": stats.get("actorReviewRating", item.get("avgRating")) or 0,
-                    "actorReviewCount": stats.get("actorReviewCount", item.get("totalReviews")) or 0,
-                    "monthlyUsers": stats.get("totalUsers30Days") or 0,
-                },
+                "stats": _widget_stats(stats, item),
                 "url": f"{cc.settings.store_url}/{username}/{name}",
                 "currentPricingInfo": simplified_pricing(item, tier),
             }
@@ -202,8 +229,12 @@ async def fetch_actor_details(cc: CallContext, args: dict) -> dict:
         structured["inputSchema"] = schema
         texts.append("# Input schema\n" + compact_json(schema))
     if "outputSchema" in flags:
-        structured["outputSchema"] = {}
-        texts.append("# Output schema\nNo output schema is available for this Actor.")
+        schema = output_schema_of(raw_def)
+        structured["outputSchema"] = schema
+        if schema:
+            texts.append("# Output schema\n" + output_schema_text(schema))
+        else:
+            texts.append("# Output schema\nThis Actor publishes no output schema. Run it with a small input to see its output.")
     if "mcpTools" in flags:
         mcp_text = await _mcp_tools_text(cc, definition)
         structured["mcpTools"] = mcp_text
