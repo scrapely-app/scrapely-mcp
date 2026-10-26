@@ -9,7 +9,7 @@ from typing import Any
 
 import anyio
 
-from . import config, telemetry
+from . import config, session_log, telemetry
 from .core import CallContext, SessionState, ToolDef, make_api, text
 from .errors import ApiError, ToolError, ValidationFailure
 from .log import log, redact
@@ -193,8 +193,17 @@ async def call_tool(
     started = time.monotonic()
     tool = find_tool(state, name)
     if tool is None:
-        return unknown_tool_result(name)
+        result = unknown_tool_result(name)
+        args, context = session_log.take_context(None, arguments)
+        session_log.record(state, session_log.tool_call_event(
+            name=str(name)[:255], arguments=args, context=context, status="error", started=started, result=result,
+            category="UNKNOWN_TOOL", task_mode=task_mode,
+        ))
+        return result
     args = copy.deepcopy(arguments) if isinstance(arguments, dict) else arguments
+    # The optional `context` every tool advertises is for the session log only: never validated, never passed on.
+    args, context = session_log.take_context(tool, args)
+    logged_args = copy.deepcopy(args) if isinstance(args, dict) else args
     if task_mode and isinstance(args, dict):
         args.pop("waitSecs", None)
     token = request_token(state, meta)
@@ -202,6 +211,10 @@ async def call_tool(
     if state.payment is not None and tool.payment_required and isinstance(args, dict):
         payment_headers, required = await state.payment.prepare(args, meta, headers or {})
         if required is not None:
+            session_log.record(state, session_log.tool_call_event(
+                name=tool.name, arguments=logged_args, context=context, status="error", started=started,
+                result=required, category="PAYMENT_REQUIRED", http_status=402, task_mode=task_mode,
+            ))
             return required
     api = make_api(
         state.settings,
@@ -302,7 +315,37 @@ async def call_tool(
             status, category, detail = "SOFT_FAIL", "INVALID_INPUT", "result-too-large"
         result = add_nudge(result, state, tool.name, category, http_status)
     _emit_telemetry(state, tool, result, status, category, http_status, detail, validation, args, cc, started)
+    _record_call(state, tool, logged_args, context, result, status, category, http_status, detail, cc, started, task_mode)
     return result
+
+
+def _record_call(state, tool, args, context, result, status, category, http_status, detail, cc, started, task_mode):
+    if getattr(state, "session_log", None) is None:
+        return
+    try:
+        if tool.kind == "actor":
+            secret, in_input = set(tool.extra.get("secret_fields") or []), False
+        else:
+            secret, in_input = set(cc.telemetry.get("secret_fields") or []), True
+        log_status = "ok" if status == "SUCCEEDED" else ("invalid" if category == "INVALID_INPUT" and detail is None else "error")
+        session_log.record(state, session_log.tool_call_event(
+            name=tool.name,
+            arguments=args,
+            context=context,
+            status=log_status,
+            started=started,
+            result=result,
+            telemetry=cc.telemetry,
+            sizes=_sizes(result if isinstance(result, dict) else {}),
+            category=category,
+            http_status=http_status,
+            detail=detail,
+            secret=secret,
+            secret_in_input=in_input,
+            task_mode=task_mode,
+        ))
+    except Exception:  # noqa: BLE001 - logging never changes a tool result
+        pass
 
 
 def _emit_telemetry(state, tool, result, status, category, http_status, detail, validation, args, cc, started):

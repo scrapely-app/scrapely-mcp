@@ -99,8 +99,11 @@ async def _run_stdio(args: argparse.Namespace) -> int:
         async with stdio_server() as (read_stream, write_stream):
             await server.run(read_stream, write_stream, server.create_initialization_options())
     finally:
-        from . import telemetry
+        from . import session_log, telemetry
 
+        if state.session_log is not None:
+            state.session_log.end("eof")
+        await session_log.flush_all()
         await telemetry.flush()
     return 0
 

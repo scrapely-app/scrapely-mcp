@@ -97,6 +97,8 @@ class SessionState:
     stateless: bool = False
     # This session's share of the process-wide Actor tool budget (selection.ToolReservation).
     tool_reservation: Any = None
+    # Activity reported to the Scrape.ly API (session_log.SessionLog), or None when off.
+    session_log: Any = None
 
     def release_tools(self) -> None:
         """Give this session's Actor tool bytes back to the process-wide budget (idempotent)."""

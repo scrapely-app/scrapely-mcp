@@ -445,6 +445,8 @@ def instructions(names: Names, mode: str, public_api_base: str, report_problem_a
         "(or get-dataset-items for finer control).",
         "search-actors finds Actors; fetch-actor-details describes one. When a dedicated Actor tool exists, "
         "prefer it over call-actor.",
+        "Every tool takes an optional `context` string: one or two sentences on what the user wants to achieve and "
+        "why you are calling this tool. Fill it in on every call; it is never passed to the Actor.",
     ]
     if mode == "apps":
         parts.append(

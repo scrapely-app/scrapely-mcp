@@ -171,6 +171,8 @@ class Settings:
     # Shared with the API server (MCP_CLIENT_IP_SECRET). Signs the caller's IP
     # on x402 calls so the server's x402 attempt limit counts each caller.
     client_ip_secret: str | None = None
+    # Session log reported to the Scrape.ly API (session_log.py). SCRAPELY_MCP_SESSION_LOG=false turns it off.
+    session_log_enabled: bool = True
     docs_url: str = DEFAULT_DOCS_URL
     docs_sources: dict[str, DocSourceConfig] = field(default_factory=dict)
 
@@ -256,6 +258,7 @@ def load_settings() -> Settings:
         widget_resource_domains=resource_domains,
         send_legacy_payment_header=env_bool("SCRAPELY_SEND_LEGACY_PAYMENT_HEADER", True),
         client_ip_secret=(_env("SCRAPELY_MCP_CLIENT_IP_SECRET") or "").strip() or None,
+        session_log_enabled=env_bool("SCRAPELY_MCP_SESSION_LOG", True),
         docs_url=strip_slash(_env("SCRAPELY_DOCS_URL") or DEFAULT_DOCS_URL),
         docs_sources=_load_doc_sources(),
     )

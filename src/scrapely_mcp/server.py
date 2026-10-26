@@ -13,7 +13,9 @@ from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import MCPError
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
-from . import SERVER_NAME, SERVER_TITLE, __version__, pipeline, remote, resources
+import time
+
+from . import SERVER_NAME, SERVER_TITLE, __version__, pipeline, remote, resources, session_log
 from .config import Settings
 from .core import ClientContext, SessionState, ToolDef
 from .log import log, token_fingerprint
@@ -68,7 +70,8 @@ def tool_to_wire(tool: ToolDef, state: SessionState, names: set[str]) -> dict:
         "name": tool.name,
         "title": tool.title,
         "description": tool.describe(names, state.mode),
-        "inputSchema": tool.input_schema,
+        # Every tool takes an optional `context` (session_log.py); it never reaches the tool or the Actor.
+        "inputSchema": session_log.with_context(tool.input_schema),
         "annotations": tool.annotations,
     }
     if tool.output_schema is not None:
@@ -183,6 +186,7 @@ class ScrapelyServer(Server):
             p = ctx.params
             apply_client(state, p.get("protocolVersion"), p.get("clientInfo"), p.get("capabilities"))
             self.instructions = instructions_for(state)
+            session_log.record(state, {"type": "initialize"})
             return await call_next(ctx)
         if ctx.protocol_version in MODERN_PROTOCOL_VERSIONS and ctx.request_id is not None:
             try:
@@ -248,6 +252,7 @@ class ScrapelyServer(Server):
         state = self.state
         names = {t.name for t in state.visible_tools()}
         wire = [types.Tool.model_validate(tool_to_wire(t, state, names)) for t in state.visible_tools()]
+        session_log.record(state, {"type": "tools_list", "status": "ok", "result": {"count": len(wire)}})
         return types.ListToolsResult(tools=wire)
 
     async def _call_tool(self, ctx: Any, params: types.CallToolRequestParams) -> Any:
@@ -263,7 +268,9 @@ class ScrapelyServer(Server):
         return types.CallToolResult.model_validate(result)
 
     async def _list_resources(self, ctx: Any, params: Any) -> types.ListResourcesResult:
-        return types.ListResourcesResult.model_validate({"resources": resources.list_resources(self.state)})
+        listed = resources.list_resources(self.state)
+        session_log.record(self.state, {"type": "resources_list", "status": "ok", "result": {"count": len(listed)}})
+        return types.ListResourcesResult.model_validate({"resources": listed})
 
     async def _list_templates(self, ctx: Any, params: Any) -> types.ListResourceTemplatesResult:
         return types.ListResourceTemplatesResult.model_validate(
@@ -276,16 +283,29 @@ class ScrapelyServer(Server):
         if token and token.strip().lower() == "your-scrapely-token":
             token = None
         modern = ctx.protocol_version in MODERN_PROTOCOL_VERSIONS
+        started = time.monotonic()
+        uri = str(params.uri)
         try:
-            contents = await resources.read_resource(self.state, str(params.uri), token, modern=modern)
+            contents = await resources.read_resource(self.state, uri, token, modern=modern)
         except resources.ResourceError as exc:
+            session_log.record(self.state, {
+                "type": "resource_read", "name": uri[:255], "status": "error",
+                "durationMs": int((time.monotonic() - started) * 1000),
+                "error": {"httpStatus": None, "message": str(exc)[:2000]},
+            })
             raise MCPError(code=exc.code, message=str(exc)) from exc
+        size = sum(len(str(c.get("text") or c.get("blob") or "")) for c in contents if isinstance(c, dict))
+        session_log.record(self.state, {
+            "type": "resource_read", "name": uri[:255], "status": "ok",
+            "durationMs": int((time.monotonic() - started) * 1000), "result": {"contents": len(contents), "bytes": size},
+        })
         return types.ReadResourceResult.model_validate({"contents": contents})
 
     async def _set_level(self, ctx: Any, params: Any) -> types.EmptyResult:
         return types.EmptyResult()
 
     async def _list_prompts(self, ctx: Any, params: Any) -> types.ListPromptsResult:
+        session_log.record(self.state, {"type": "prompts_list", "status": "ok", "result": {"count": 0}})
         return types.ListPromptsResult(prompts=[])
 
     async def _task_method(self, ctx: Any, params: Any) -> dict:
@@ -309,6 +329,9 @@ async def build_state(
     session_id: str | None = None,
     task_scope: str | None = None,
     stateless: bool = False,
+    hosted: bool = False,
+    country: str | None = None,
+    client_ip: str | None = None,
 ) -> SessionState:
     from .core import make_api
 
@@ -347,4 +370,8 @@ async def build_state(
         weakref.finalize(state, reservation.release)
     state.mode = resolve_mode(ui_option, None, settings.widgets_enabled) if ui_option != "auto" else "default"
     recompose(state)
+    picked = None
+    if selection is not None:
+        picked = {k: v for k, v in (("actors", selection.actors), ("tools", selection.tools)) if v}
+    session_log.attach(state, hosted=hosted, country=country, client_ip=client_ip, selection=picked or None)
     return state

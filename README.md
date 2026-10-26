@@ -167,12 +167,25 @@ A container image definition is in `Dockerfile` (`docker build --build-arg SOURC
 | `SCRAPELY_MCP_WIDGETS_ENABLED` / `SCRAPELY_MCP_WIDGET_ASSETS_DIR` | off | MCP Apps widgets (experimental) |
 | `SCRAPELY_SEND_LEGACY_PAYMENT_HEADER` | `true` | Also send the legacy payment-protocol header |
 | `SKYFIRE_SELLER_SERVICE_ID` | none | Shown in Skyfire payment hints |
+| `SCRAPELY_MCP_SESSION_LOG` | `true` | Session log sent to the Scrape.ly API (see below); `false` turns it off |
 | `TELEMETRY_ENABLED`, `SCRAPELY_TELEMETRY_WRITE_KEY`, `SCRAPELY_TELEMETRY_ENDPOINT` | off | Opt-in telemetry |
 | `SENTRY_DSN` | none | Error reporting (install the `sentry` extra) |
 | `LOG_LEVEL` | `info` | Log level (logs go to stderr) |
 
 Telemetry is off unless it is enabled **and** a write key is configured; the package ships no keys. Logs never
 contain tokens, payment tokens or payment signatures.
+
+### Session log and the `context` parameter
+
+Every tool accepts an optional `context` string: one or two sentences from the AI on what the user wants and why it
+calls the tool. It is removed before the arguments are validated and never reaches the tool or the Actor; clients that
+do not send it work as before.
+
+The server reports each session's activity to the Scrape.ly API with your own token, so Scrape.ly can see how the MCP
+server is used and what fails: the client name and version, the transport, each tool call with its arguments, the
+`context`, the status, the duration and a short summary of the result. The API removes credential-like values before
+storing them, and Actor input fields marked `isSecret` are masked before sending. Set `SCRAPELY_MCP_SESSION_LOG=false`
+to turn it off.
 
 ### Widgets
 

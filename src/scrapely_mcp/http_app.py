@@ -107,14 +107,19 @@ class Gateway:
         now = time.monotonic()
         stale = [s for s in self.sessions.values() if s.inflight == 0 and now - s.last_seen > timeout]
         for entry in stale:
-            self.close_session(entry.session_id)
+            self.close_session(entry.session_id, "idle")
         if stale:
             log.info("closed idle sessions", closed=len(stale), open=len(self.sessions))
         return len(stale)
 
-    def close_session(self, session_id: str) -> None:
+    def close_session(self, session_id: str, reason: str = "closed") -> None:
         entry = self.sessions.pop(session_id, None)
         if entry is not None:
+            try:
+                if entry.server.state.session_log is not None:
+                    entry.server.state.session_log.end(reason)
+            except Exception:  # noqa: BLE001
+                pass
             for key in entry.keys:
                 ids = self._by_key.get(key)
                 if ids is not None:
@@ -166,7 +171,10 @@ class Gateway:
                 await send({"type": "lifespan.startup.complete"})
             elif message["type"] == "lifespan.shutdown":
                 for sid in list(self.sessions):
-                    self.close_session(sid)
+                    self.close_session(sid, "shutdown")
+                from . import session_log
+
+                await session_log.flush_all()
                 if self._tg is not None:
                     self._tg.cancel_scope.cancel()
                     try:
@@ -238,6 +246,12 @@ class Gateway:
         if client:
             return str(client[0])
         return "unknown"
+
+    @staticmethod
+    def client_country(headers: dict[str, str]) -> str | None:
+        """The caller's country (two letters) from Cloudflare's CF-IPCountry, forwarded by the API proxy."""
+        raw = (headers.get("cf-ipcountry") or "").strip().upper()
+        return raw if len(raw) == 2 and raw.isalpha() and raw != "XX" else None
 
     @staticmethod
     def extract_token(headers: dict[str, str], query: dict[str, list[str]]) -> str | None:
@@ -372,7 +386,7 @@ class Gateway:
                 entry.inflight -= 1
                 entry.last_seen = time.monotonic()
             if method == "DELETE":
-                self.close_session(entry.session_id)
+                self.close_session(entry.session_id, "client-closed")
             return
 
         # 7. payment provider
@@ -433,6 +447,9 @@ class Gateway:
                     preloaded=self._preloaded,
                     task_scope=f"token:{fingerprint}" if token else "anonymous",
                     stateless=True,
+                    hosted=True,
+                    country=self.client_country(headers),
+                    client_ip=self.client_ip(scope, headers),
                 )
             except ToolCapacityError as exc:
                 await self._send_all(send, self._at_capacity(exc, rpc_id))
@@ -486,7 +503,8 @@ class Gateway:
             return
         try:
             await self._open_session(
-                scope, replay, send, api_token, fingerprint, payment_kind, ui_option, telemetry, selection, keys
+                scope, replay, send, api_token, fingerprint, payment_kind, ui_option, telemetry, selection, keys,
+                country=self.client_country(headers), client_ip=self.client_ip(scope, headers),
             )
         except ToolCapacityError as exc:
             await self._send_all(send, self._at_capacity(exc, rpc_id))
@@ -543,7 +561,7 @@ class Gateway:
                     victim = self._lru_idle(list(self._by_key.get(key, ())))
                     if victim is None:
                         return "key"
-                    self.close_session(victim.session_id)
+                    self.close_session(victim.session_id, "evicted")
             if len(self.sessions) + self.reserving >= self.settings.max_sessions:
                 victim = None
                 for key in keys:
@@ -554,7 +572,7 @@ class Gateway:
                     victim = self._lru_idle(list(self.sessions))
                 if victim is None:
                     return "global"
-                self.close_session(victim.session_id)
+                self.close_session(victim.session_id, "evicted")
             self.reserving += 1
             for key in keys:
                 self._reserved_by_key[key] = self._reserved_by_key.get(key, 0) + 1
@@ -570,7 +588,8 @@ class Gateway:
                 self._reserved_by_key.pop(key, None)
 
     async def _open_session(
-        self, scope, replay, send, token, fingerprint, payment_kind, ui_option, telemetry, selection, keys=()
+        self, scope, replay, send, token, fingerprint, payment_kind, ui_option, telemetry, selection, keys=(),
+        country=None, client_ip=None,
     ):
         payment = await make_provider(self.settings, payment_kind) if payment_kind else None
         state = await build_state(
@@ -582,6 +601,9 @@ class Gateway:
             transport="http",
             selection=selection,
             preloaded=self._preloaded,
+            hosted=True,
+            country=country,
+            client_ip=client_ip,
         )
         server = ScrapelyServer(state)
         manager = StreamableHTTPSessionManager(app=server, session_idle_timeout=None, max_sessions=None)
@@ -608,6 +630,8 @@ class Gateway:
                         entry = SessionEntry(sid, fingerprint, server, manager, stop, inflight=1, keys=keys)
                         self._register(entry)
                         registered["entry"] = entry
+                        if state.session_log is not None:
+                            state.session_log.mark_ready()
             await send(message)
 
         try:

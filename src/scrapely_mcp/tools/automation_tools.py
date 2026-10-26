@@ -102,6 +102,7 @@ async def run_saved_input(cc: CallContext, args: dict) -> dict:
     if not isinstance(run, dict) or not run.get("id"):
         raise ToolError("The API did not return the started run.")
     cc.telemetry["run_id"] = run["id"]
+    cc.telemetry.setdefault("started_run_ids", []).append(str(run["id"]))
     wait = int(args.get("waitSecs") or 0)
     return await runs.wait_and_respond(cc, str(run["id"]), wait_secs=max(0, min(wait, 45)), unlimited=False)
 
@@ -195,6 +196,8 @@ async def run_automation(cc: CallContext, args: dict) -> dict:
     }
     result = {k: v for k, v in result.items() if v is not None}
     run_ids = [s["runId"] for s in steps if s.get("runId")]
+    if run_ids:
+        cc.telemetry.setdefault("started_run_ids", []).extend(str(r) for r in run_ids)
     hint = (
         f" Follow the Actor runs with get-actor-run ({', '.join(run_ids)})."
         if run_ids and cc.has("get-actor-run")

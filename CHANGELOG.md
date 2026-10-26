@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.6] - 2026-10-26
+
+- Every tool accepts an optional `context` string: the AI says in one or two sentences what the user wants and why it
+  calls the tool. The server removes it before validating the arguments, so it never reaches a tool, an Actor or an
+  MCP-server Actor, and clients that do not send it work as before. A tool whose own input has a `context` field keeps
+  it unchanged. The server instructions ask for it on every call.
+- Session log: the server reports each session to the Scrape.ly API (`POST /v2/mcp/session-log`, with the caller's
+  token): client name and version from `initialize`, transport, server version, every tool call (arguments, `context`,
+  status, duration, result summary with run, dataset and Actor ids and the runs it started, the first 4,000 characters
+  of the result), resource reads, lists and the session end. Actor input fields marked `isSecret` are masked before
+  sending; the API removes credential-like values before storing. Batches go from a background task and never delay or
+  fail a call. `SCRAPELY_MCP_SESSION_LOG=false` turns it off. The hosted server also sends the caller's country
+  (from Cloudflare), never the IP.
+- Session log reports never loop: a batch is sent once and dropped on failure (no retry). A 401/403 pauses reports
+  with that credential for an hour, a 404 (an API server without the endpoint) pauses them for the whole process for an
+  hour, and a 429/5xx pauses them for `Retry-After` (at most 10 minutes). Nothing is sent without a credential.
+
 ## [0.3.5] - 2026-10-24
 
 - `search-actors` cards list each Actor's input fields: name, type, whether it is required, a short description, the
