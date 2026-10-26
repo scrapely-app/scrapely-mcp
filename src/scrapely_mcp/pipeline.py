@@ -323,10 +323,6 @@ def _record_call(state, tool, args, context, result, status, category, http_stat
     if getattr(state, "session_log", None) is None:
         return
     try:
-        if tool.kind == "actor":
-            secret, in_input = set(tool.extra.get("secret_fields") or []), False
-        else:
-            secret, in_input = set(cc.telemetry.get("secret_fields") or []), True
         log_status = "ok" if status == "SUCCEEDED" else ("invalid" if category == "INVALID_INPUT" and detail is None else "error")
         session_log.record(state, session_log.tool_call_event(
             name=tool.name,
@@ -340,8 +336,6 @@ def _record_call(state, tool, args, context, result, status, category, http_stat
             category=category,
             http_status=http_status,
             detail=detail,
-            secret=secret,
-            secret_in_input=in_input,
             task_mode=task_mode,
         ))
     except Exception:  # noqa: BLE001 - logging never changes a tool result

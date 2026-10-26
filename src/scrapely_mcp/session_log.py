@@ -5,9 +5,8 @@ used and what fails: the client (name and version from `initialize`), the
 transport, every tool call with its arguments, the optional `context` the AI
 gives, the status, duration and a short summary of the result, resource reads
 and lists. Events are sent in small batches to `POST /v2/mcp/session-log` with
-the caller's own token, the same API the tools call. The API removes
-credential-like values before storing anything; this module also masks Actor
-input fields the Actor marks `isSecret`.
+the caller's own token, the same API the tools call. Values are sent and
+stored as they are (nothing is masked); only sizes are bounded.
 
 On by default for the hosted server and the local package;
 `SCRAPELY_MCP_SESSION_LOG=false` turns it off. Sending never blocks or fails a
@@ -117,30 +116,6 @@ def take_context(tool: Any, args: Any) -> tuple[Any, str | None]:
     text = raw if isinstance(raw, str) else json.dumps(raw, default=str)
     text = text.strip()
     return args, (text[:MAX_CONTEXT_CHARS] or None)
-
-
-def secret_fields(schema: Any) -> set[str]:
-    """Top-level input properties marked `isSecret` (or holding a secret field)."""
-
-    def has_secret(node: Any) -> bool:
-        if isinstance(node, dict):
-            if node.get("isSecret") is True:
-                return True
-            return any(has_secret(v) for v in node.values())
-        if isinstance(node, list):
-            return any(has_secret(v) for v in node)
-        return False
-
-    props = schema.get("properties") if isinstance(schema, dict) else None
-    if not isinstance(props, dict):
-        return set()
-    return {k for k, v in props.items() if has_secret(v)}
-
-
-def mask(values: Any, fields: set[str]) -> Any:
-    if not fields or not isinstance(values, dict):
-        return values
-    return {k: ("REDACTED" if k in fields and v is not None else v) for k, v in values.items()}
 
 
 def _bounded_args(args: Any) -> Any:
@@ -422,17 +397,9 @@ def tool_call_event(
     category: str | None = None,
     http_status: int | None = None,
     detail: str | None = None,
-    secret: set[str] | None = None,
-    secret_in_input: bool = False,
     task_mode: bool = False,
 ) -> dict:
     args = arguments
-    if secret:
-        if secret_in_input and isinstance(args, dict):
-            args = dict(args)
-            args["input"] = mask(args.get("input"), secret)
-        else:
-            args = mask(args, secret)
     preview, truncated = preview_of(result)
     event: dict[str, Any] = {
         "type": "tool_call",

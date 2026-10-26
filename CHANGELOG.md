@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.7] - 2026-10-26
+
+- Session log: tool arguments (including Actor input fields marked `isSecret`), results and `context` are reported as
+  they are; nothing is masked. Only sizes are bounded (arguments 64 KB, the result's first 4,000 characters).
+
 ## [0.3.6] - 2026-10-26
 
 - Every tool accepts an optional `context` string: the AI says in one or two sentences what the user wants and why it

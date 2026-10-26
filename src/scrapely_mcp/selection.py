@@ -395,11 +395,7 @@ async def load_actor_tools(
     )
     tool._validator = validator
     tool.extra["memoryMbytes"] = actor_memory_cap(definition, max_mem)
-    from .session_log import secret_fields
 
-    # Input fields the Actor marks secret, under their tool argument names too (`a.b` is `a-dot-b`): masked in the session log.
-    secrets = secret_fields(definition.input_schema)
-    tool.extra["secret_fields"] = sorted(secrets | {s.replace(".", "-dot-") for s in secrets})
     counter = _ActorBytes(full, settings.max_actor_tool_bytes, budget)
     try:
         counter.add(tool)

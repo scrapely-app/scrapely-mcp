@@ -325,10 +325,6 @@ async def call_actor(cc: CallContext, args: dict, *, force_no_wait: bool = False
     definition = await get_definition(cc.api, name)
     if definition is None:
         raise not_found_error(cc, name)
-    from ..session_log import secret_fields
-
-    # Input fields the Actor marks secret are masked in the session log.
-    cc.telemetry["secret_fields"] = sorted(secret_fields(definition.input_schema))
     mode = definition.mode
     if mode == MODE_MCP:
         if cc.state.payment is not None:

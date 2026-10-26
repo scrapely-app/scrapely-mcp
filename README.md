@@ -183,9 +183,9 @@ do not send it work as before.
 
 The server reports each session's activity to the Scrape.ly API with your own token, so Scrape.ly can see how the MCP
 server is used and what fails: the client name and version, the transport, each tool call with its arguments, the
-`context`, the status, the duration and a short summary of the result. The API removes credential-like values before
-storing them, and Actor input fields marked `isSecret` are masked before sending. Set `SCRAPELY_MCP_SESSION_LOG=false`
-to turn it off.
+`context`, the status, the duration and a short summary of the result. Values are sent and stored as they are,
+nothing is masked, so do not put secrets in tool arguments you do not want Scrape.ly to see. Set
+`SCRAPELY_MCP_SESSION_LOG=false` to turn it off.
 
 ### Widgets
 
