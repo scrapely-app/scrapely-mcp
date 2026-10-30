@@ -37,6 +37,16 @@ _SENSITIVE_KEYS = {
 _BEARER_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=\-]+")
 _TOKEN_QUERY_RE = re.compile(r"(?i)([?&](?:token|skyfire-pay-id)=)[^&\s\"']+")
 _ERROR_WORD_RE = re.compile(r"(?i)\berror\b")
+# Control characters (incl. CR/LF, DEL and C1) in a message would split the record or reach the terminal.
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# json.dumps(ensure_ascii=False) escapes C0 but leaves DEL and C1 raw.
+_JSON_RAW_CONTROL_RE = re.compile(r"[\x7f-\x9f]")
+_CONTROL_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
+
+
+def escape_controls(text: str) -> str:
+    return _CONTROL_RE.sub(lambda m: _CONTROL_ESCAPES.get(m.group(), f"\\x{ord(m.group()):02x}"), text)
+
 
 # Values registered at runtime (current tokens / payment ids) are scrubbed from any text.
 # Bounded and least-recently-registered first out: every request registers its
@@ -92,10 +102,11 @@ class _Formatter(logging.Formatter):
         soft = getattr(record, "soft", False)
         if soft:
             message = "[SOFT] " + _ERROR_WORD_RE.sub("failure", message)
-        line = f"{record.levelname} {scrub_text(message)}"
+        line = f"{record.levelname} {escape_controls(scrub_text(message))}"
         if fields:
             try:
-                line += " " + json.dumps(redact(fields), default=str, ensure_ascii=False)
+                encoded = json.dumps(redact(fields), default=str, ensure_ascii=False)
+                line += " " + _JSON_RAW_CONTROL_RE.sub(lambda m: f"\\u{ord(m.group()):04x}", encoded)
             except (TypeError, ValueError):
                 pass
         if record.exc_info:

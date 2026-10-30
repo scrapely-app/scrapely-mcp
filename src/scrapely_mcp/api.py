@@ -121,7 +121,8 @@ class ApiClient:
                 delay *= 2
                 continue
             return last
-        assert last is not None
+        if last is None:
+            raise RuntimeError("request loop made no attempts")
         return last
 
     async def get_capped(

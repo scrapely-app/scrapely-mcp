@@ -296,7 +296,7 @@ async def call_tool(
                     detail = exc.message
                     log.classified(f"tool {tool.name} API call failed", exc)
             except Exception as exc:  # noqa: BLE001
-                msg = f"Tool {tool.name} failed: {str(exc).rstrip('.')}. Check the tool name and its inputs."
+                msg = f"Tool {tool.name} failed due to an internal error. Try again later."
                 result = {"content": [text(msg)], "isError": True}
                 status, category, detail = "FAILED", "INTERNAL_ERROR", str(exc)
                 log.error(f"tool {tool.name} raised an unexpected exception", exc=True)

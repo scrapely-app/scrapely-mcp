@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import time
 from dataclasses import dataclass, field
@@ -530,15 +531,33 @@ class Gateway:
         tools = query.get("tools")
         return normalize_selection(actors if actors is not None else None, tools if tools is not None else None, max_mem)
 
+    @staticmethod
+    def admission_ip(ip: str) -> str:
+        """The per-IP admission bucket: IPv6 grouped by /64 (one host's usual
+        allocation), IPv4 and IPv4-mapped addresses as-is."""
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return ip
+        if isinstance(addr, ipaddress.IPv6Address):
+            if addr.ipv4_mapped:
+                return str(addr.ipv4_mapped)
+            return str(ipaddress.IPv6Network((addr, 64), strict=False))
+        return ip
+
     def _admission_keys(self, token: str | None, fingerprint: str, ip: str) -> tuple[str, ...]:
-        keys = [f"ip:{ip}"]
+        keys = [f"ip:{self.admission_ip(ip)}"]
         if token:
             keys.insert(0, f"cred:{fingerprint}")
+        else:
+            keys.append("anon")
         return tuple(keys)
 
     def _key_cap(self, key: str) -> int:
         if key.startswith("cred:"):
             return self.settings.max_sessions_per_credential
+        if key == "anon":
+            return self.settings.max_anonymous_sessions
         return self.settings.max_sessions_per_ip
 
     def _key_count(self, key: str) -> int:
@@ -614,7 +633,8 @@ class Gateway:
                 task_status.started()
                 await stop.wait()
 
-        assert self._tg is not None, "gateway lifespan has not started"
+        if self._tg is None:
+            raise RuntimeError("gateway lifespan has not started")
         await self._tg.start(runner)
         registered: dict[str, SessionEntry] = {}
 

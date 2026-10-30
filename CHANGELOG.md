@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.8] - 2026-10-30
+
+- Prices per plan use the plan names (Free, Starter, Scale, Business) in plan order, never the internal tier codes;
+  `tieredPricing` entries add a `plan` field. The price shown is the one the server bills.
+- A tool that fails with an internal error no longer returns the exception text to the client.
+- Log lines escape control characters (newlines, escape sequences), so a value can't add log lines or reach a terminal.
+- Hosted server: sessions without a token share a cap (`SCRAPELY_MCP_MAX_ANONYMOUS_SESSIONS`, default 1000), and the
+  per-IP session limit groups IPv6 addresses by /64.
+- certifi 2026.10.23.
+
 ## [0.3.7] - 2026-10-26
 
 - Session log: tool arguments (including Actor input fields marked `isSecret`), results and `context` are reported as

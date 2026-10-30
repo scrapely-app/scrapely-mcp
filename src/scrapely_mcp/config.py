@@ -153,6 +153,9 @@ class Settings:
     # one client IP (as forwarded by the API server's /mcp proxy).
     max_sessions_per_credential: int = 50
     max_sessions_per_ip: int = 100
+    # Shared cap for sessions opened without a token (payment-only callers),
+    # so they can never hold more than this share of max_sessions.
+    max_anonymous_sessions: int = 1000
     # Most Actors one ?actors= / ?tools= selection may name.
     max_selected_actors: int = 50
     # Byte bounds for Actor-provided tool definitions and for one tool result.
@@ -240,6 +243,7 @@ def load_settings() -> Settings:
         max_sessions=_env_int("SCRAPELY_MCP_MAX_SESSIONS", 10_000, minimum=1),
         max_sessions_per_credential=_env_int("SCRAPELY_MCP_MAX_SESSIONS_PER_CREDENTIAL", 50, minimum=1),
         max_sessions_per_ip=_env_int("SCRAPELY_MCP_MAX_SESSIONS_PER_IP", 100, minimum=1),
+        max_anonymous_sessions=_env_int("SCRAPELY_MCP_MAX_ANONYMOUS_SESSIONS", 1000, minimum=1),
         max_selected_actors=_env_int("SCRAPELY_MCP_MAX_SELECTED_ACTORS", 50, minimum=1),
         max_actor_tool_bytes=_env_int("SCRAPELY_MCP_MAX_ACTOR_TOOL_BYTES", DEFAULT_MAX_ACTOR_TOOL_BYTES, minimum=1),
         max_session_tool_bytes=_env_int(

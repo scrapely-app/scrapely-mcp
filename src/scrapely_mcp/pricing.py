@@ -2,41 +2,37 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
-from .util import fmt_number, parse_ts
+from .util import fmt_number
 
 TIERS = ["FREE", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"]
+
+# Scrape.ly plan names for the price tiers (users only ever see plan names, never the tier codes).
+PLAN_NAMES = {"FREE": "Free", "BRONZE": "Starter", "SILVER": "Scale", "GOLD": "Business", "PLATINUM": "Enterprise", "DIAMOND": "Enterprise"}
+
+
+def plan_name(tier: str) -> str:
+    return PLAN_NAMES.get(str(tier).upper(), str(tier))
 
 
 def current_pricing(actor: dict) -> dict | None:
     cur = actor.get("currentPricingInfo")
-    newest = _newest_info(actor.get("pricingInfos"))
+    billed = _billed_info(actor.get("pricingInfos"))
     if isinstance(cur, dict) and cur:
         # Some API views return only the model in currentPricingInfo; take the details
         # from the matching pricingInfos entry.
-        if newest and newest.get("pricingModel") == cur.get("pricingModel"):
-            return {**newest, **{k: v for k, v in cur.items() if v is not None}}
+        if billed and billed.get("pricingModel") == cur.get("pricingModel"):
+            return {**billed, **{k: v for k, v in cur.items() if v is not None}}
         return cur
-    return newest
+    return billed
 
 
-def _newest_info(infos: Any) -> dict | None:
-    if not isinstance(infos, list) or not infos:
+def _billed_info(infos: Any) -> dict | None:
+    # The server bills pricingInfos[0]; the owner-set startedAt does not pick the entry.
+    if not isinstance(infos, list) or not infos or not isinstance(infos[0], dict):
         return None
-    now = datetime.now(timezone.utc)
-    best: dict | None = None
-    best_ts: datetime | None = None
-    for info in infos:
-        if not isinstance(info, dict):
-            continue
-        ts = parse_ts(info.get("startedAt"))
-        if ts is not None and ts > now:
-            continue
-        if best is None or (ts is not None and (best_ts is None or ts >= best_ts)) or (ts is None and best_ts is None):
-            best, best_ts = info, ts
-    return best
+    return infos[0]
 
 
 def _num(value: Any) -> float | int | None:
@@ -60,7 +56,9 @@ def _tier_map(raw: Any, key: str) -> list[tuple[str, float | int]]:
         price = _num(entry.get(key)) if isinstance(entry, dict) else _num(entry)
         if price is not None:
             out.append((str(tier), price))
-    return out
+    # Plan order (Free, Starter, Scale, Business, ...), whatever order the API sent the keys in.
+    rank = {t: i for i, t in enumerate(TIERS)}
+    return sorted(out, key=lambda tp: rank.get(tp[0].upper(), len(TIERS)))
 
 
 def _events(info: dict) -> list[dict]:
@@ -283,11 +281,11 @@ def complete_pricing(actor: dict, user_tier: str) -> tuple[dict, str]:
         data["unitName"] = unit
         data["pricePerUnit"] = price
         if tiers:
-            data["tieredPricing"] = [{"tier": t, "pricePerUnit": p} for t, p in tiers]
+            data["tieredPricing"] = [{"tier": t, "plan": plan_name(t), "pricePerUnit": p} for t, p in tiers]
         if model == "PRICE_PER_DATASET_ITEM":
             unit_note = "" if unit.strip().lower() in RESULT_TITLES else f" (charged per {unit})"
             if len(tiers) > 1:
-                parts = ", ".join(f"{t}: ${fmt_number(round(p * 1000, 6))}" for t, p in tiers)
+                parts = ", ".join(f"{plan_name(t)}: ${fmt_number(round(p * 1000, 6))}" for t, p in tiers)
                 lines.append(f"Pay per result: price per 1,000 results{unit_note} by plan: {parts}.")
             else:
                 p = tiers[0][1] if tiers else price
@@ -297,7 +295,7 @@ def complete_pricing(actor: dict, user_tier: str) -> tuple[dict, str]:
             if trial is not None:
                 data["trialMinutes"] = trial
             if len(tiers) > 1:
-                parts = ", ".join(f"{t}: ${fmt_number(p)}" for t, p in tiers)
+                parts = ", ".join(f"{plan_name(t)}: ${fmt_number(p)}" for t, p in tiers)
                 lines.append(f"Monthly rental by plan: {parts}.")
             else:
                 p = tiers[0][1] if tiers else price
@@ -315,8 +313,8 @@ def complete_pricing(actor: dict, user_tier: str) -> tuple[dict, str]:
         for ev in events:
             item: dict[str, Any] = {"title": ev["title"], "description": ev["description"]}
             if len(ev["tiers"]) > 1 or (ev["tiers"] and ev["price"] is None):
-                item["tieredPricing"] = [{"tier": t, "priceUsd": p} for t, p in ev["tiers"]]
-                text_price = ", ".join(f"{t}: ${fmt_number(p)}" for t, p in ev["tiers"])
+                item["tieredPricing"] = [{"tier": t, "plan": plan_name(t), "priceUsd": p} for t, p in ev["tiers"]]
+                text_price = ", ".join(f"{plan_name(t)}: ${fmt_number(p)}" for t, p in ev["tiers"])
             elif ev["price"] is not None or ev["tiers"]:
                 price = ev["price"] if ev["price"] is not None else ev["tiers"][0][1]
                 item["priceUsd"] = price
