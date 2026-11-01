@@ -106,14 +106,14 @@
       "clean": { "type": "boolean" },
       "offset": { "type": "number" },
       "limit": { "type": "integer", "minimum": 1, "maximum": 1000 },
-      "fields": { "type": "string" },
-      "omit": { "type": "string" },
+      "fields": { "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+      "omit": { "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
       "desc": { "type": "boolean" },
-      "flatten": { "type": "string" }
+      "flatten": { "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] }
     },
     "required": ["datasetId"],
     "additionalProperties": false,
-    "$comment": "No schema default for limit/offset; the server applies limit=20 and offset=0 when absent."
+    "$comment": "No schema default for limit/offset; the server applies limit=20 and offset=0 when absent. fields, omit and flatten take a comma-separated string or a list of names; the handler joins a list with commas."
   },
 
   "get-actor-output": {
@@ -121,7 +121,7 @@
     "properties": {
       "datasetId": { "type": "string", "minLength": 1 },
       "runId": { "type": "string", "minLength": 1 },
-      "fields": { "type": "string" },
+      "fields": { "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
       "offset": { "type": "integer", "minimum": 0, "default": 0 },
       "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 },
       "includeOutputRecord": { "type": "boolean" },
@@ -129,7 +129,7 @@
     },
     "required": [],
     "additionalProperties": false,
-    "$comment": "Added after the clean-room spec. datasetId or runId is required (checked by the handler). includeOutputRecord defaults to true when a runId or keyValueStoreId is given."
+    "$comment": "Added after the clean-room spec. datasetId or runId is required (checked by the handler). includeOutputRecord defaults to true when a runId or keyValueStoreId is given. fields takes a comma-separated string or a list of names; the handler joins a list with commas."
   },
 
   "get-dataset-schema": {

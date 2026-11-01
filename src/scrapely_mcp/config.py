@@ -156,6 +156,11 @@ class Settings:
     # Shared cap for sessions opened without a token (payment-only callers),
     # so they can never hold more than this share of max_sessions.
     max_anonymous_sessions: int = 1000
+    # Per-network cap inside that shared pool (IPv4 address or IPv6 /48), so a
+    # few addresses cannot fill it for every other payment-only caller.
+    max_anonymous_sessions_per_ip: int = 10
+    # Payment-only sessions cost nothing to open, so idle ones are reclaimed sooner.
+    anonymous_session_idle_timeout: float = 300.0
     # Most Actors one ?actors= / ?tools= selection may name.
     max_selected_actors: int = 50
     # Byte bounds for Actor-provided tool definitions and for one tool result.
@@ -244,6 +249,8 @@ def load_settings() -> Settings:
         max_sessions_per_credential=_env_int("SCRAPELY_MCP_MAX_SESSIONS_PER_CREDENTIAL", 50, minimum=1),
         max_sessions_per_ip=_env_int("SCRAPELY_MCP_MAX_SESSIONS_PER_IP", 100, minimum=1),
         max_anonymous_sessions=_env_int("SCRAPELY_MCP_MAX_ANONYMOUS_SESSIONS", 1000, minimum=1),
+        max_anonymous_sessions_per_ip=_env_int("SCRAPELY_MCP_MAX_ANON_SESSIONS_PER_IP", 10, minimum=1),
+        anonymous_session_idle_timeout=_env_float("SCRAPELY_MCP_ANON_SESSION_IDLE_TIMEOUT_SECS", 300.0),
         max_selected_actors=_env_int("SCRAPELY_MCP_MAX_SELECTED_ACTORS", 50, minimum=1),
         max_actor_tool_bytes=_env_int("SCRAPELY_MCP_MAX_ACTOR_TOOL_BYTES", DEFAULT_MAX_ACTOR_TOOL_BYTES, minimum=1),
         max_session_tool_bytes=_env_int(

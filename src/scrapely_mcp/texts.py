@@ -173,10 +173,10 @@ def get_actor_output(n: Names, mode: str) -> str:
     return (
         "Fetch the results of a run in one call: a page of its dataset items and, when available, its OUTPUT "
         "record. Pass `runId` (its default dataset and key-value store are used) or a `datasetId`. Page with "
-        "`offset` and `limit` (default 100, at most 1000) and pick columns with `fields` (comma-separated, dot "
-        "notation for nested fields). To keep the reply small, long text values are cut and a page may hold "
-        "fewer items than `limit`; `hasMore` and `nextOffset` say where to continue. Works for any run you can "
-        "read with your token."
+        "`offset` and `limit` (default 100, at most 1000) and pick columns with `fields` (a comma-separated "
+        "string or a list of names, dot notation for nested fields). To keep the reply small, long text values "
+        "are cut and a page may hold fewer items than `limit`; `hasMore` and `nextOffset` say where to continue. "
+        "Works for any run you can read with your token."
     )
 
 
@@ -184,9 +184,9 @@ def get_dataset_items(n: Names, mode: str) -> str:
     return (
         "Read rows from a dataset. Page with `offset` and `limit` (default 20, at most 1000); a page of large "
         "items may hold fewer items than `limit`, and the reply says where to continue. `fields` and `omit` take "
-        "comma-separated field names (dot notation selects nested fields), `flatten` takes comma-separated "
-        "fields to flatten, `desc` returns newest first and `clean` skips empty items and hidden fields. "
-        "Accepts a dataset ID or `username~dataset-name`."
+        "field names as a comma-separated string or a list (dot notation selects nested fields), `flatten` takes "
+        "the fields to flatten the same way, `desc` returns newest first and `clean` skips empty items and "
+        "hidden fields. Accepts a dataset ID or `username~dataset-name`."
     )
 
 

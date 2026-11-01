@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.9] - 2026-11-01
+
+- `get-actor-output` (`fields`) and `get-dataset-items` (`fields`, `omit`, `flatten`) accept a list of field names
+  as well as a comma-separated string. Agents that sent `["title", "url"]` used to get "is not of type 'string'".
+
 ## [0.3.8] - 2026-10-30
 
 - Prices per plan use the plan names (Free, Starter, Scale, Business) in plan order, never the internal tier codes;

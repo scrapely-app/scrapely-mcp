@@ -200,9 +200,8 @@ class ApiClient:
             elif isinstance(body, dict) and body.get("message"):
                 message = str(body["message"])
         except (ValueError, AttributeError):
-            text = resp.text[:300].strip()
-            if text:
-                message = f"HTTP {resp.status_code}: {text}"
+            # A non-JSON body (e.g. a proxy's HTML error page) is not echoed to the client.
+            pass
         raise ApiError(message, status=resp.status_code, type=err_type, data=data)
 
     @staticmethod

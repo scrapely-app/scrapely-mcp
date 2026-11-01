@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scrapely-mcp"
-version = "0.3.8"
+version = "0.3.9"
 description = "Model Context Protocol server for Scrape.ly: find, run and inspect Actors, and read their results."
 readme = "README.md"
 license = "MIT"

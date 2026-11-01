@@ -33,8 +33,9 @@ def hmac_base62(secret: str, message: str) -> str:
 def sign_record(secret: str, store_id: str, key: str, expires_in: int = DEFAULT_EXPIRES_SECS) -> str:
     expires_at = int(time.time() * 1000) + expires_in * 1000
     path = f"/v2/key-value-stores/{store_id}/records/{seg(key)}"
-    message = f"1.{expires_at}.{store_id}.GET.{path}.{key}"
-    token = f"1.{expires_at}.{hmac_base62(secret, message)}"
+    # Version 2 also binds the query; a record URL carries none besides `signature`.
+    message = f"2.{expires_at}.{store_id}.GET.{path}.{key}."
+    token = f"2.{expires_at}.{hmac_base62(secret, message)}"
     return base64.urlsafe_b64encode(token.encode()).decode().rstrip("=")
 
 

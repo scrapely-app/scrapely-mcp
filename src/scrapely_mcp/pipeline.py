@@ -121,6 +121,9 @@ def _error_text(tool_name: str, exc: ApiError, settings) -> tuple[str, str, bool
             "INVALID_INPUT",
             True,
         )
+    if status is None or status >= 500:
+        # Server-side detail stays in telemetry (detail), not in the client text.
+        return f"Tool {tool_name} failed due to a server error. Try again later.", "INTERNAL_ERROR", False
     type_part = f" ({exc.type})" if exc.type else ""
     if status == 401:
         hint = "Authentication failed: check that your Scrape.ly token is valid."

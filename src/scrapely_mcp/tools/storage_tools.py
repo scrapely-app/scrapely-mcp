@@ -12,7 +12,7 @@ from ..api import CappedRead, path_ref, seg
 from ..core import CallContext, ok, storage_result, text
 from ..errors import ToolError
 from ..signing import record_url
-from ..util import compact_json, normalize_fields, strip_quotes, strip_record_key, utf8_len
+from ..util import compact_json, normalize_fields, split_list, strip_quotes, strip_record_key, utf8_len
 
 INLINE_LIMIT = 262_144
 
@@ -153,6 +153,12 @@ async def get_dataset(cc: CallContext, args: dict) -> dict:
     return storage_result(data, summary, step, await cc.console_link(f"/storage/datasets/{data['id']}"))
 
 
+def _names(value: Any) -> str | None:
+    """A field-name selector as the API takes it: names joined with commas (a string or a list of names)."""
+    names = split_list(value)
+    return ",".join(names) if names else None
+
+
 def _derive_flatten(fields: str | None) -> str | None:
     if not fields:
         return None
@@ -183,15 +189,15 @@ async def get_dataset_items(cc: CallContext, args: dict) -> dict:
     cc.telemetry["dataset_id"] = ds
     offset = max(int(args.get("offset") or 0), 0)
     limit = _clamp_limit(args.get("limit"), 20)
-    fields = args.get("fields")
-    flatten = args.get("flatten") or _derive_flatten(fields)
+    fields = _names(args.get("fields"))
+    flatten = _names(args.get("flatten")) or _derive_flatten(fields)
     params: dict[str, Any] = {
         "format": "json",
         "clean": args.get("clean"),
         "offset": offset,
         "limit": limit,
         "fields": fields,
-        "omit": args.get("omit"),
+        "omit": _names(args.get("omit")),
         "desc": args.get("desc"),
         "flatten": flatten,
     }
@@ -660,7 +666,7 @@ async def get_actor_output(cc: CallContext, args: dict) -> dict:
 
     offset = max(int(args.get("offset") or 0), 0)
     limit = min(max(int(args.get("limit") or OUTPUT_DEFAULT_LIMIT), 1), OUTPUT_MAX_LIMIT)
-    fields = args.get("fields") or None
+    fields = _names(args.get("fields"))
     params: dict[str, Any] = {
         "format": "json",
         "clean": True,

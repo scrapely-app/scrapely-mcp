@@ -110,7 +110,7 @@ class _Formatter(logging.Formatter):
             except (TypeError, ValueError):
                 pass
         if record.exc_info:
-            line += "\n" + scrub_text(self.formatException(record.exc_info))
+            line += "\n" + escape_controls(scrub_text(self.formatException(record.exc_info)))
         return line
 
 

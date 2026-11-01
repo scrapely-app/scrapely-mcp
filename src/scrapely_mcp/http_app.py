@@ -93,8 +93,7 @@ class Gateway:
             await api.aclose()
 
     async def _sweeper(self) -> None:
-        timeout = self.settings.session_idle_timeout
-        interval = min(60.0, timeout)
+        interval = min(60.0, self.settings.session_idle_timeout, self.settings.anonymous_session_idle_timeout)
         while True:
             await anyio.sleep(interval)
             self.sweep()
@@ -105,8 +104,12 @@ class Gateway:
 
     def sweep(self) -> int:
         timeout = self.settings.session_idle_timeout
+        anon_timeout = self.settings.anonymous_session_idle_timeout
         now = time.monotonic()
-        stale = [s for s in self.sessions.values() if s.inflight == 0 and now - s.last_seen > timeout]
+        stale = [
+            s for s in self.sessions.values()
+            if s.inflight == 0 and now - s.last_seen > (anon_timeout if "anon" in s.keys else timeout)
+        ]
         for entry in stale:
             self.close_session(entry.session_id, "idle")
         if stale:
@@ -550,14 +553,28 @@ class Gateway:
         if token:
             keys.insert(0, f"cred:{fingerprint}")
         else:
-            keys.append("anon")
+            keys.extend((f"anonip:{self.anonymous_ip(ip)}", "anon"))
         return tuple(keys)
+
+    @staticmethod
+    def anonymous_ip(ip: str) -> str:
+        """The payment-only admission bucket: IPv6 grouped by /48 (one site's
+        usual allocation), so cycling /64s does not multiply the per-IP cap."""
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return ip
+        if isinstance(addr, ipaddress.IPv6Address) and not addr.ipv4_mapped:
+            return str(ipaddress.IPv6Network((addr, 48), strict=False))
+        return Gateway.admission_ip(ip)
 
     def _key_cap(self, key: str) -> int:
         if key.startswith("cred:"):
             return self.settings.max_sessions_per_credential
         if key == "anon":
             return self.settings.max_anonymous_sessions
+        if key.startswith("anonip:"):
+            return self.settings.max_anonymous_sessions_per_ip
         return self.settings.max_sessions_per_ip
 
     def _key_count(self, key: str) -> int:
@@ -577,7 +594,10 @@ class Gateway:
         async with self._lock:
             for key in keys:
                 if self._key_count(key) >= self._key_cap(key):
-                    victim = self._lru_idle(list(self._by_key.get(key, ())))
+                    # The shared payment-only pool only gives up the caller's own
+                    # network's idle sessions, never another caller's.
+                    own = next((k for k in keys if k.startswith("anonip:")), key) if key == "anon" else key
+                    victim = self._lru_idle(list(self._by_key.get(own, ())))
                     if victim is None:
                         return "key"
                     self.close_session(victim.session_id, "evicted")
