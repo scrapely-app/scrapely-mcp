@@ -20,6 +20,7 @@ from ..actors import (
 from ..cards import ALL_SECTIONS, build_card, success_rate
 from ..core import CallContext, ok, run_result, text
 from ..errors import ApiError, RemoteUnreachable, ToolError
+from ..input_coercion import coerce_scalar_strings
 from ..log import log
 from ..util import compact_json, normalize_actor_name
 
@@ -30,6 +31,14 @@ ALL_OUTPUT_FLAGS = DEFAULT_SECTIONS | {"outputSchema", "mcpTools"}
 def _log_name_change(original: str, fixed: str, route: str) -> None:
     if original != fixed:
         log.info("normalised Actor name", original=original, fixed=fixed, route=route)
+
+
+def coerce_actor_input(run_input: Any, schema: Any, actor: str, route: str) -> Any:
+    """Convert unambiguous scalar strings ("20", "true") to the schema's type (input_coercion.py)."""
+    out, changed = coerce_scalar_strings(run_input, schema)
+    if changed:
+        log.info("converted scalar strings in Actor input", actor=actor, fields=changed, route=route)
+    return out
 
 
 def not_found_error(cc: CallContext, actor: str) -> ToolError:
@@ -352,6 +361,7 @@ async def call_actor(cc: CallContext, args: dict, *, force_no_wait: bool = False
     wait = 0 if force_no_wait else int(args.get("waitSecs", 30) if args.get("waitSecs") is not None else 30)
     params = runs.run_params(args.get("callOptions"))
     cc.telemetry.update({"actor_name": definition.full_name, "actor_id": definition.id})
+    run_input = coerce_actor_input(run_input, definition.input_schema, definition.full_name, "call-actor")
     run = await start_run_checked(cc, definition.full_name, run_input, params, definition)
     run_id = run["id"]
     cc.telemetry["run_id"] = run_id

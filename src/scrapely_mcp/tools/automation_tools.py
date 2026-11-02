@@ -12,7 +12,7 @@ from .. import runs
 from ..core import CallContext, ok
 from ..errors import ApiError, ToolError
 from ..util import compact_json, strip_quotes
-from .task_tools import read_task, resolve_ref
+from .task_tools import coerce_task_input, read_task, resolve_ref
 
 
 def _seg(ref: str) -> str:
@@ -87,12 +87,14 @@ async def run_saved_input(cc: CallContext, args: dict) -> dict:
     saved_id = str(args.get("savedInputId") or "")
     ref, ambiguous = resolve_ref(saved_id, is_task=True)
     target = ref
-    if ambiguous:
+    override = args.get("input") if isinstance(args.get("input"), dict) else None
+    if ambiguous or override:
         task = await read_task(cc, saved_id)
         if task is None:
             raise ToolError(f"Saved input '{saved_id}' was not found. Check the ID or name.", http_status=404)
         target = str(task.get("id") or ref)
-    override = args.get("input") if isinstance(args.get("input"), dict) else None
+        if override:
+            override = await coerce_task_input(cc, str(task.get("actId") or ""), override, "run-saved-input")
     try:
         run = await cc.api.post_json(f"/v2/actor-tasks/{_seg(target)}/runs", override or {})
     except ApiError as exc:

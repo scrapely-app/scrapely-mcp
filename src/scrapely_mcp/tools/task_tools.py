@@ -6,8 +6,10 @@ import re
 from typing import Any
 from urllib.parse import quote
 
+from ..actors import get_definition
 from ..core import CallContext, ok
 from ..errors import ApiError, ToolError
+from ..log import log
 from ..util import ALNUM17_RE, UUID_RE, compact_json, normalize_ts, strip_quotes
 
 _NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$")
@@ -92,6 +94,33 @@ def _not_found(task_id: str) -> ToolError:
     return ToolError(f"Task '{task_id}' was not found. Check the task ID or name.", http_status=404)
 
 
+async def coerce_task_input(cc: CallContext, actor_ref: str, task_input: dict, route: str) -> dict:
+    """Convert unambiguous scalar strings ("20", "true") to the type of the Actor's input schema
+    (input_coercion.py). An Actor that cannot be read here is left to the API, which checks the input."""
+    from .actor_tools import coerce_actor_input
+
+    if not actor_ref or not task_input:
+        return task_input
+    try:
+        definition = await get_definition(cc.api, actor_ref)
+    except Exception as exc:  # noqa: BLE001 - the conversion is optional; the API still checks the input
+        log.info("Actor not read for input conversion", actor=actor_ref, reason=type(exc).__name__, route=route)
+        return task_input
+    if definition is None:
+        return task_input
+    return coerce_actor_input(task_input, definition.input_schema, definition.full_name, route)
+
+
+def _input_error(exc: ApiError) -> ToolError:
+    return ToolError(
+        f"The task was not saved: {exc.message.rstrip('.')}. Every run of the task would be refused with this input. Make the "
+        "input match the Actor's input schema (fetch-actor-details shows it): arrays as JSON arrays, numbers and "
+        "booleans as JSON values.",
+        http_status=exc.status,
+        detail="invalid-input",
+    )
+
+
 def _publish_error(exc: ApiError) -> ToolError:
     return ToolError(
         f"The API refused the task: {exc.message}. SEO fields are checked when a task is created or updated, and "
@@ -109,7 +138,7 @@ async def create_actor_task(cc: CallContext, args: dict) -> dict:
         if args.get(key) is not None:
             body[key] = args[key]
     if isinstance(args.get("input"), dict) and args["input"]:
-        body["input"] = args["input"]
+        body["input"] = await coerce_task_input(cc, actor_ref, args["input"], "create-actor-task")
     opts = _options(args)
     if opts:
         body["options"] = opts
@@ -119,6 +148,8 @@ async def create_actor_task(cc: CallContext, args: dict) -> dict:
     except ApiError as exc:
         if exc.type == "cannot-publish-actor-task":
             raise _publish_error(exc) from exc
+        if exc.type == "invalid-input" and "input" in body and exc.message.startswith("Input is not valid"):
+            raise _input_error(exc) from exc
         raise
     return _respond(task, f"Created task {task.get('name')} ({task.get('id')}) for Actor {task.get('actId')}.")
 
@@ -137,20 +168,23 @@ async def update_actor_task(cc: CallContext, args: dict) -> dict:
     task_id = str(args.get("taskId") or "")
     ref, ambiguous = resolve_ref(task_id, is_task=True)
     opts = _options(args)
+    new_input = args.get("input") if isinstance(args.get("input"), dict) and args["input"] else None
     stored_opts: dict = {}
     target = ref
-    if opts or ambiguous:
+    if opts or ambiguous or new_input:
         task = await read_task(cc, task_id)
         if task is None:
             raise _not_found(task_id)
         target = str(task.get("id") or ref)
         stored_opts = task.get("options") if isinstance(task.get("options"), dict) else {}
+        if new_input:
+            new_input = await coerce_task_input(cc, str(task.get("actId") or ""), new_input, "update-actor-task")
     body: dict[str, Any] = {}
     for key in ("name", "title"):
         if args.get(key) is not None:
             body[key] = args[key]
-    if isinstance(args.get("input"), dict) and args["input"]:
-        body["input"] = args["input"]
+    if new_input:
+        body["input"] = new_input
     if opts:
         merged = {k: v for k, v in stored_opts.items() if v is not None}
         merged.update(opts)
@@ -163,6 +197,8 @@ async def update_actor_task(cc: CallContext, args: dict) -> dict:
             raise _publish_error(exc) from exc
         if exc.status == 404:
             raise _not_found(task_id) from exc
+        if exc.type == "invalid-input" and "input" in body and exc.message.startswith("Input is not valid"):
+            raise _input_error(exc) from exc
         raise
     return _respond(task, f"Updated task {task.get('name')} ({task.get('id')}).")
 

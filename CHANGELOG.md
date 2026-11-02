@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.10] - 2026-11-02
+
+- Actor input sent by `call-actor`, `run-saved-input` (its `input`), `create-actor-task` and `update-actor-task`: a
+  top-level field whose input schema type is integer, number or boolean and whose value is that value written as a
+  string (`"20"`, `"1.5"`, `"true"`) is sent as the JSON value. Anything ambiguous (`"20.5"` for an integer, `"1"` or
+  `"yes"` for a boolean, spaces, a field that also allows a string, secret fields, nested values) is sent as it is,
+  and wrappers such as `{"item": [...]}` are never unwrapped: the API refuses them.
+- `create-actor-task` and `update-actor-task`: input the Actor's input schema refuses is no longer saved (the API now
+  checks it); the error says the task was not saved and names the fields.
+
 ## [0.3.9] - 2026-11-01
 
 - `get-actor-output` (`fields`) and `get-dataset-items` (`fields`, `omit`, `flatten`) accept a list of field names
