@@ -20,7 +20,7 @@ from ..actors import (
 from ..cards import ALL_SECTIONS, build_card, success_rate
 from ..core import CallContext, ok, run_result, text
 from ..errors import ApiError, RemoteUnreachable, ToolError
-from ..input_coercion import coerce_scalar_strings
+from ..input_coercion import coerce_scalar_strings, unwrap_list_wrappers
 from ..log import log
 from ..util import compact_json, normalize_actor_name
 
@@ -34,8 +34,12 @@ def _log_name_change(original: str, fixed: str, route: str) -> None:
 
 
 def coerce_actor_input(run_input: Any, schema: Any, actor: str, route: str) -> Any:
-    """Convert unambiguous scalar strings ("20", "true") to the schema's type (input_coercion.py)."""
-    out, changed = coerce_scalar_strings(run_input, schema)
+    """Unwrap list wrappers ({"item": ...}) of array fields and convert unambiguous scalar strings ("20", "true")
+    to the schema's type (input_coercion.py)."""
+    out, unwrapped = unwrap_list_wrappers(run_input, schema)
+    if unwrapped:
+        log.info("unwrapped list wrappers in Actor input", actor=actor, fields=unwrapped, route=route)
+    out, changed = coerce_scalar_strings(out, schema)
     if changed:
         log.info("converted scalar strings in Actor input", actor=actor, fields=changed, route=route)
     return out

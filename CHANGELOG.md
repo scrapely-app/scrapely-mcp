@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.11] - 2026-11-02
+
+- Actor input sent by `call-actor`, `run-saved-input` (its `input`), `create-actor-task` and `update-actor-task`: a
+  top-level field whose input schema type is array and whose value is a list wrapper object, `{"item": "x"}`,
+  `{"item": ["a", "b"]}`, `{"item": {"item": [...]}}` or the same with `"items"`, is sent as the list (`["x"]`,
+  `["a", "b"]`). Some agent runtimes turn lists into these wrappers, and the API refused them with "must be array".
+  Left as they are: objects with other or more keys, `{"item": null}`, fields whose type also allows an object or a
+  string, secret fields, fields whose list items have an `item` or `items` property, and nested values.
+
 ## [0.3.10] - 2026-11-02
 
 - Actor input sent by `call-actor`, `run-saved-input` (its `input`), `create-actor-task` and `update-actor-task`: a
