@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.13] - 2026-11-03
+
+- `get-actor-output`: when the run's OUTPUT record cannot be read (for example an API key without the
+  `keyValueStores:read` scope), the dataset items are still returned. `outputRecord` is null and the new
+  `outputRecordNote` (also in the summary) says why the record was skipped. Before, the whole call failed.
+
 ## [0.3.12] - 2026-11-02
 
 - Actor input schemas whose regex keywords could not be stripped (a nested `$id`, or a `$ref` that is not a local

@@ -310,6 +310,7 @@
         },
         "required": ["keyValueStoreId", "key", "value", "truncated"]
       },
+      "outputRecordNote": { "type": "string" },
       "summary": { "type": "string" },
       "nextStep": { "type": "string" }
     },

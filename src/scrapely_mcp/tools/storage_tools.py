@@ -10,7 +10,7 @@ from typing import Any
 
 from ..api import CappedRead, path_ref, seg
 from ..core import CallContext, ok, storage_result, text
-from ..errors import ToolError
+from ..errors import ApiError, ToolError
 from ..signing import record_url
 from ..util import compact_json, normalize_fields, split_list, strip_quotes, strip_record_key, utf8_len
 
@@ -687,8 +687,18 @@ async def get_actor_output(cc: CallContext, args: dict) -> dict:
     next_offset = offset + count if has_more else None
 
     record = None
+    record_note = None
     if include_record:
-        record = await _read_output_record(cc, kvs, OUTPUT_RECORD_KEY)
+        try:
+            record = await _read_output_record(cc, kvs, OUTPUT_RECORD_KEY)
+        except ApiError as e:
+            # The items are the run's main output: a record this token cannot read (e.g. a key
+            # without keyValueStores:read) is skipped with a note instead of failing the call.
+            reason = (
+                e.message if e.status is not None and 400 <= e.status < 500 and e.message
+                else "the key-value store could not be read right now"
+            )
+            record_note = f"The OUTPUT record was skipped: {reason.rstrip('.')}. The dataset items are returned."
 
     parts = []
     if count == 0 and total == 0:
@@ -699,7 +709,9 @@ async def get_actor_output(cc: CallContext, args: dict) -> dict:
         parts.append(f"The page was shortened to {count} items to stay compact.")
     if counter[0]:
         parts.append(f"{counter[0]} long text values were cut.")
-    if include_record:
+    if record_note:
+        parts.append(record_note)
+    elif include_record:
         parts.append(
             "The OUTPUT record was not found." if record is None
             else ("The OUTPUT record is included (shortened)." if record.get("truncated") else "The OUTPUT record is included.")
@@ -710,6 +722,11 @@ async def get_actor_output(cc: CallContext, args: dict) -> dict:
     if has_more:
         step = f"Call get-actor-output again with offset={next_offset} for the next page"
         step += "." if fields else ", or pass `fields` to read only the columns you need."
+    elif record_note:
+        step = (
+            "That is all the dataset output. To read the OUTPUT record, use a token that can read key-value "
+            "stores; pass includeOutputRecord: false to skip it."
+        )
     elif record is not None and record.get("truncated"):
         step = f"Read the full record with get-key-value-store-record (keyValueStoreId \"{kvs}\", recordKey \"OUTPUT\")."
     else:
@@ -734,6 +751,8 @@ async def get_actor_output(cc: CallContext, args: dict) -> dict:
     )
     if include_record:
         structured["outputRecord"] = record
+    if record_note:
+        structured["outputRecordNote"] = record_note
     console = await cc.console_link(f"/storage/datasets/{ds}")
     if console:
         structured["scrapelyConsoleUrl"] = console
