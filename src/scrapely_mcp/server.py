@@ -239,8 +239,12 @@ class ScrapelyServer(Server):
                     )
                 except asyncio.CancelledError:
                     return
-                except Exception as exc:  # noqa: BLE001
-                    result = {"content": [{"type": "text", "text": f"Task failed: {exc}"}], "isError": True}
+                except Exception:  # noqa: BLE001
+                    log.error("task raised an unexpected exception", exc=True)
+                    result = {
+                        "content": [{"type": "text", "text": "Task failed due to an internal error. Try again later."}],
+                        "isError": True,
+                    }
                 task_store.complete(scope, record.task_id, result)
 
         record.runner = asyncio.get_running_loop().create_task(run())

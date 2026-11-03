@@ -11,7 +11,7 @@ from urllib.parse import urljoin, urlsplit
 
 from .api import ApiClient
 from .identity import get_caller
-from .log import log
+from .log import log, token_fingerprint
 from .util import TTLCache, compact_json
 
 # About 3,000 tokens: enough for the whole README of most Store Actors (median ~8,400 characters) while
@@ -253,13 +253,19 @@ def tool_mode(standby: bool, mcp_path: str | None, schema: dict | None) -> str:
 # -- cache -----------------------------------------------------------------
 
 _cache: TTLCache[str, ActorDefinition] = TTLCache(500, 1800)
+# Tool-list lookups (remember_miss) that found no Actor, per credential and reference,
+# so repeated misses (e.g. a long ?actors= list of made-up names) do not each call
+# the API. Direct calls always look again, so a just-created Actor is found.
+NOT_FOUND_TTL_SECS = 60
+_not_found: TTLCache[tuple[str, str], bool] = TTLCache(2000, NOT_FOUND_TTL_SECS)
 
 
 def clear_cache() -> None:
     _cache.clear()
+    _not_found.clear()
 
 
-async def get_definition(api: ApiClient, ref: str) -> ActorDefinition | None:
+async def get_definition(api: ApiClient, ref: str, *, remember_miss: bool = False) -> ActorDefinition | None:
     caller = None
     hit = _cache.get(ref)
     if hit is not None:
@@ -270,9 +276,16 @@ async def get_definition(api: ApiClient, ref: str) -> ActorDefinition | None:
             allowed = caller.user_id is not None and caller.user_id == hit.user_id
         if allowed:
             return hit
+    miss_key = (token_fingerprint(api.token), ref)
+    if remember_miss and _not_found.get(miss_key):
+        return None
     actor = await api.get_actor(ref)
     definition = parse_definition(actor)
     if definition is None:
+        # Only a missing Actor is remembered: one without a default build yet
+        # may get one any moment.
+        if actor is None and remember_miss:
+            _not_found.set(miss_key, True)
         return None
     if caller is None and api.token:
         caller = await get_caller(api)

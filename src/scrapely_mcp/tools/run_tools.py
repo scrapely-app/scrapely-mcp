@@ -81,11 +81,21 @@ async def get_actor_log(cc: CallContext, args: dict) -> dict:
     run_id = strip_quotes(str(args.get("runId") or ""))
     cc.telemetry["run_id"] = run_id
     lines = args.get("lines", 10)
-    resp = await cc.api.request("GET", f"/v2/logs/{seg(run_id)}", headers={"Accept": "text/plain"})
+    # The logs API has no tail parameter or Range support: stream the log and keep
+    # only its last tool-result-budget bytes.
+    read = await cc.api.get_capped(
+        f"/v2/logs/{seg(run_id)}",
+        headers={"Accept": "text/plain"},
+        max_bytes=cc.settings.max_tool_result_bytes,
+        tail=True,
+    )
+    resp = read.response
     if resp.status_code == 404:
         raise ToolError(f"Run '{run_id}' was not found, so there is no log. Check the run ID.", http_status=404)
     cc.api.raise_for(resp)
     log_text = resp.text
+    if read.truncated and "\n" in log_text:
+        log_text = log_text.split("\n", 1)[1]  # drop the line the cap cut through
     if log_text.endswith("\n"):
         log_text = log_text[:-1]
     if log_text:
@@ -94,6 +104,12 @@ async def get_actor_log(cc: CallContext, args: dict) -> dict:
         if n > 0:
             all_lines = all_lines[-n:]
         log_text = "\n".join(all_lines)
+    if read.truncated:
+        note = (
+            f"The log is longer than {cc.settings.max_tool_result_bytes:,} bytes; these are its last lines. "
+            "Download the full log through the Scrape.ly API."
+        )
+        return ok({"log": log_text}, [log_text, note])
     return ok({"log": log_text}, [log_text])
 
 

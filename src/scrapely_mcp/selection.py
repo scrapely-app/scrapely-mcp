@@ -38,6 +38,11 @@ from .util import json_size, normalize_actor_name, split_list, truncate_text, ut
 from .validation import MAX_UNTRUSTED_SCHEMA_BYTES, ArgValidator, advertised_schema, schema_size
 
 
+# Most Actors an unauthenticated server/discover may name with ?actors= / ?tools=:
+# it skips session admission, so each request must stay cheap.
+MAX_UNAUTHENTICATED_DISCOVER_ACTORS = 5
+
+
 @dataclass
 class Selection:
     actors: list[str] | None
@@ -244,6 +249,7 @@ async def load_tools(
     *,
     payment_active: bool = False,
     reservation: ToolReservation | None = None,
+    remote_without_token: bool = False,
 ) -> list[ToolDef]:
     """Tools for a selection.
 
@@ -253,6 +259,8 @@ async def load_tools(
     the process-wide one. Their bytes are added to `reservation`, which the
     owner releases when the session ends. When the process-wide budget is
     full, ToolCapacityError is raised and nothing stays reserved.
+    MCP-server Actors are listed without a token only with
+    `remote_without_token` (the gateway's startup preload).
     """
     out: list[ToolDef] = []
     seen: set[str] = set()
@@ -297,6 +305,7 @@ async def load_tools(
                     payment_active,
                     loaded_ids=loaded_ids,
                     budget=budget,
+                    remote_without_token=remote_without_token,
                 )
             )
         except ToolCapacityError:
@@ -316,8 +325,9 @@ async def load_actor_tools(
     *,
     loaded_ids: set[str] | None = None,
     budget: ToolBudget | None = None,
+    remote_without_token: bool = False,
 ) -> list[ToolDef]:
-    definition = await get_definition(api, name)
+    definition = await get_definition(api, name, remember_miss=True)
     if definition is None:
         log.soft_fail("Actor not found, skipping its tool", actor=name)
         return []
@@ -333,6 +343,10 @@ async def load_actor_tools(
     if mode == MODE_MCP:
         if payment_active:
             log.info("MCP-server Actor tools are not offered with agentic payment", actor=name)
+            return []
+        if not api.token and not remote_without_token:
+            # Unauthenticated server/discover: skip the remote tools/list call.
+            log.info("MCP-server Actor tools need an API token, not listing them", actor=name)
             return []
         return await _load_proxied(settings, definition, api, budget)
     schema = derive_tool_schema(definition.input_schema)
@@ -460,10 +474,12 @@ async def _load_proxied(settings: Settings, definition, api: ApiClient, budget: 
                 except Exception as exc:  # noqa: BLE001
                     from .errors import ToolError
 
+                    log.soft_fail("remote MCP tool call failed", actor=definition.full_name, tool=rname, reason=str(exc))
                     raise ToolError(
-                        f"Calling tool '{rname}' of Actor {definition.full_name} failed: {exc}. "
+                        f"Calling tool '{rname}' of Actor {definition.full_name} failed. "
                         "The Actor's MCP server may be unavailable right now.",
                         user=False,
+                        detail=str(exc),
                     ) from exc
                 out_: dict = {"content": result.get("content") or [], "isError": bool(result.get("isError"))}
                 if result.get("structuredContent") is not None:

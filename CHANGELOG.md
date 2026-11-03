@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.12] - 2026-11-02
+
+- Actor input schemas whose regex keywords could not be stripped (a nested `$id`, or a `$ref` that is not a local
+  `#/...` pointer) are refused, and every call to that Actor fails with the reason. A root `$id` is allowed.
+- Tool errors give the caller a short message; the underlying cause goes to the server log only.
+- `get-actor-log` returns the end of the log and dataset item reads stop at the tool result budget, instead of loading
+  everything into memory.
+- Hosted gateway: open sessions are also capped per IPv6 /48 (`SCRAPELY_MCP_MAX_SESSIONS_PER_IPNET`, default 400). A
+  caller over a per-IP or per-network cap can only give up its own idle sessions, and payment-only callers never push
+  out a token holder's session.
+- `server/discover` without a token names at most 5 Actors and skips MCP server Actors. Actors in a tool list that
+  are not found are remembered for a minute per credential.
+
 ## [0.3.11] - 2026-11-02
 
 - Actor input sent by `call-actor`, `run-saved-input` (its `input`), `create-actor-task` and `update-actor-task`: a

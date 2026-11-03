@@ -59,7 +59,7 @@ async def scrapely_index(cc: CallContext) -> list[dict]:
                 raise ToolError("The Scrape.ly documentation index is too large to search.", user=False)
             data = resp.json()
     except (httpx.HTTPError, ValueError) as exc:
-        raise ToolError(f"The documentation search failed: {exc}", user=False) from exc
+        raise ToolError("The documentation search failed. Try again later.", user=False, detail=str(exc)) from exc
     entries = []
     for page in data if isinstance(data, list) else []:
         slug = page.get("slug") if isinstance(page, dict) else None
@@ -169,7 +169,7 @@ async def search_docs(cc: CallContext, args: dict) -> dict:
         try:
             data = await algolia_query(source.app_id, source.api_key, source.index, body)
         except httpx.HTTPError as exc:
-            raise ToolError(f"The documentation search failed: {exc}", user=False) from exc
+            raise ToolError("The documentation search failed. Try again later.", user=False, detail=str(exc)) from exc
         results = []
         for hit in data.get("hits") or []:
             url = hit.get("url_without_anchor")
@@ -242,7 +242,7 @@ async def fetch_docs(cc: CallContext, args: dict) -> dict:
             async with httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=True) as client:
                 resp = await client.get(md, headers={"User-Agent": USER_AGENT})
         except httpx.HTTPError as exc:
-            raise ToolError(f"Fetching {url} failed: {exc}", user=False) from exc
+            raise ToolError(f"Fetching {url} failed. Try again later.", user=False, detail=str(exc)) from exc
         if resp.status_code >= 400:
             raise ToolError(f"Fetching {url} failed with HTTP status {resp.status_code}.", user=False, http_status=resp.status_code)
         content = resp.text

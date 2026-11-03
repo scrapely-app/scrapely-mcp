@@ -22,7 +22,14 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from .config import Settings, is_internal_host, load_settings, parse_bool
 from .log import log, register_secret, token_fingerprint
 from .payments import make_provider, parse_payment
-from .selection import Selection, ToolCapacityError, actor_selectors, load_tools, normalize_selection
+from .selection import (
+    MAX_UNAUTHENTICATED_DISCOVER_ACTORS,
+    Selection,
+    ToolCapacityError,
+    actor_selectors,
+    load_tools,
+    normalize_selection,
+)
 from .server import ScrapelyServer, build_state
 from .task_store import TASK_METHODS, TaskError, store as task_store
 
@@ -39,7 +46,7 @@ class SessionEntry:
     stop: anyio.Event
     inflight: int = 0
     last_seen: float = field(default_factory=time.monotonic)
-    # Admission keys ("cred:<fingerprint>", "ip:<address>") this session counts against.
+    # Admission keys ("cred:<fingerprint>", "ip:<address>", "ipnet:<IPv6 /48>") this session counts against.
     keys: tuple[str, ...] = ()
 
 
@@ -88,7 +95,7 @@ class Gateway:
 
         api = make_api(self.settings, None)
         try:
-            self._preloaded = await load_tools(self.settings, self.default_selection, api)
+            self._preloaded = await load_tools(self.settings, self.default_selection, api, remote_without_token=True)
         finally:
             await api.aclose()
 
@@ -417,6 +424,8 @@ class Gateway:
         if selection is not None:
             n_actors = len(actor_selectors(selection))
             limit = self.settings.max_selected_actors
+            if payment_kind is None and not token:
+                limit = min(limit, MAX_UNAUTHENTICATED_DISCOVER_ACTORS)
             if n_actors > limit:
                 await self._send_all(
                     send,
@@ -480,6 +489,7 @@ class Gateway:
                 "per-credential/per-IP session limit reached, refusing new session",
                 max_per_credential=self.settings.max_sessions_per_credential,
                 max_per_ip=self.settings.max_sessions_per_ip,
+                max_per_ipnet=self.settings.max_sessions_per_ipnet,
             )
             await self._send_all(
                 send,
@@ -550,6 +560,11 @@ class Gateway:
 
     def _admission_keys(self, token: str | None, fingerprint: str, ip: str) -> tuple[str, ...]:
         keys = [f"ip:{self.admission_ip(ip)}"]
+        # IPv6 /48 on top of the /64 bucket, so a site rotating /64s (and random
+        # tokens) cannot multiply the per-IP cap. IPv4 has only the per-IP key.
+        network = self.anonymous_ip(ip)
+        if network != self.admission_ip(ip):
+            keys.append(f"ipnet:{network}")
         if token:
             keys.insert(0, f"cred:{fingerprint}")
         else:
@@ -575,6 +590,8 @@ class Gateway:
             return self.settings.max_anonymous_sessions
         if key.startswith("anonip:"):
             return self.settings.max_anonymous_sessions_per_ip
+        if key.startswith("ipnet:"):
+            return self.settings.max_sessions_per_ipnet
         return self.settings.max_sessions_per_ip
 
     def _key_count(self, key: str) -> int:
@@ -587,26 +604,44 @@ class Gateway:
     async def _reserve(self, keys: tuple[str, ...] = ()) -> str | None:
         """Reserve a slot for a new session. Returns None, "key" or "global".
 
-        A caller over its own per-key cap only ever evicts its own idle
-        sessions. When the whole pool is full, the caller's own idle sessions
-        go first; another caller's idle session is evicted only as a last resort.
+        A caller over its credential cap, its IPv6 network's cap or the
+        payment-only pool only evicts its own idle sessions (same credential,
+        or the same payment-only network): a /48 can hold unrelated callers.
+        Over an address cap, the bucket's oldest idle session goes, but a
+        payment-only caller only ever evicts another payment-only session.
+        When the whole pool is full, the caller's own
+        idle sessions go first; another caller's idle session is evicted only
+        as a last resort, with the same payment-only rule.
         """
         async with self._lock:
+            # The caller's identity: its credential, or its payment-only network.
+            own = self._by_key.get(next((k for k in keys if k.startswith(("cred:", "anonip:"))), ""), set())
             for key in keys:
                 if self._key_count(key) >= self._key_cap(key):
-                    # The shared payment-only pool only gives up the caller's own
-                    # network's idle sessions, never another caller's.
-                    own = next((k for k in keys if k.startswith("anonip:")), key) if key == "anon" else key
-                    victim = self._lru_idle(list(self._by_key.get(own, ())))
+                    if key.startswith(("cred:", "anonip:", "ipnet:")) or key == "anon":
+                        pool = [i for i in self._by_key.get(key, ()) if i in own]
+                    elif "anon" in keys:
+                        # Payment-only callers never evict a token holder sharing their address.
+                        anon = self._by_key.get("anon", set())
+                        pool = [i for i in self._by_key.get(key, ()) if i in anon]
+                    else:
+                        pool = list(self._by_key.get(key, ()))
+                    victim = self._lru_idle(pool)
                     if victim is None:
                         return "key"
                     self.close_session(victim.session_id, "evicted")
             if len(self.sessions) + self.reserving >= self.settings.max_sessions:
-                victim = None
-                for key in keys:
-                    victim = self._lru_idle(list(self._by_key.get(key, ())))
-                    if victim is not None:
-                        break
+                victim = self._lru_idle(list(own))
+                if victim is None and "anon" in keys:
+                    # Payment-only callers never evict a token holder's session to get in.
+                    victim = self._lru_idle(list(self._by_key.get("anon", ())))
+                    if victim is None:
+                        return "global"
+                if victim is None:
+                    for key in keys:
+                        victim = self._lru_idle(list(self._by_key.get(key, ())))
+                        if victim is not None:
+                            break
                 if victim is None:
                     victim = self._lru_idle(list(self.sessions))
                 if victim is None:

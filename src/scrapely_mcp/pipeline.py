@@ -277,10 +277,14 @@ async def call_tool(
                 category = exc.category
                 http_status = exc.http_status
                 detail = exc.detail or exc.message
+                # The raw cause (detail) goes to the server log only, never to the caller.
+                fields = {"reason": exc.message[:300]}
+                if exc.detail:
+                    fields["detail"] = exc.detail[:300]
                 if exc.user:
-                    log.soft_fail(f"tool {tool.name} returned a user error", reason=exc.message[:300])
+                    log.soft_fail(f"tool {tool.name} returned a user error", **fields)
                 else:
-                    log.error(f"tool {tool.name} failed", reason=exc.message[:300])
+                    log.error(f"tool {tool.name} failed", **fields)
             except ApiError as exc:
                 if (
                     exc.status == 402

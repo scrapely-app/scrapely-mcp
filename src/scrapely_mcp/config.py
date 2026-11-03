@@ -153,6 +153,8 @@ class Settings:
     # one client IP (as forwarded by the API server's /mcp proxy).
     max_sessions_per_credential: int = 50
     max_sessions_per_ip: int = 100
+    # Per-network cap: one IPv6 /48 (several /64 per-IP buckets).
+    max_sessions_per_ipnet: int = 400
     # Shared cap for sessions opened without a token (payment-only callers),
     # so they can never hold more than this share of max_sessions.
     max_anonymous_sessions: int = 1000
@@ -248,6 +250,7 @@ def load_settings() -> Settings:
         max_sessions=_env_int("SCRAPELY_MCP_MAX_SESSIONS", 10_000, minimum=1),
         max_sessions_per_credential=_env_int("SCRAPELY_MCP_MAX_SESSIONS_PER_CREDENTIAL", 50, minimum=1),
         max_sessions_per_ip=_env_int("SCRAPELY_MCP_MAX_SESSIONS_PER_IP", 100, minimum=1),
+        max_sessions_per_ipnet=_env_int("SCRAPELY_MCP_MAX_SESSIONS_PER_IPNET", 400, minimum=1),
         max_anonymous_sessions=_env_int("SCRAPELY_MCP_MAX_ANONYMOUS_SESSIONS", 1000, minimum=1),
         max_anonymous_sessions_per_ip=_env_int("SCRAPELY_MCP_MAX_ANON_SESSIONS_PER_IP", 10, minimum=1),
         anonymous_session_idle_timeout=_env_float("SCRAPELY_MCP_ANON_SESSION_IDLE_TIMEOUT_SECS", 300.0),

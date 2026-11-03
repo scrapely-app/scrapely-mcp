@@ -168,7 +168,8 @@ async def _proxy(state: SessionState, uri: str, token: str) -> list[dict]:
                         too_large = True
                         break
     except httpx.HTTPError as exc:
-        return [{"uri": uri, "mimeType": "text/plain", "text": f"Failed to read {parts.path}: {exc}"}]
+        log.soft_fail("reading a storage resource failed", path=parts.path, reason=str(exc))
+        return [{"uri": uri, "mimeType": "text/plain", "text": f"Failed to read {parts.path}."}]
     body = b"".join(chunks)
     if status >= 300:
         snippet = body[:2000].decode("utf-8", "replace")[:200]

@@ -276,10 +276,10 @@ async def _mcp_tools_text(cc: CallContext, definition) -> str:
         tools = await remote.list_remote_tools(url, cc.api.token, cc.settings.max_remote_tool_list_bytes)
     except RemoteUnreachable as exc:
         log.soft_fail("MCP-server Actor unreachable", actor=definition.full_name, reason=str(exc))
-        return f"Could not connect to the Actor's MCP server: {exc}"
+        return "Could not connect to the Actor's MCP server."
     except Exception as exc:  # noqa: BLE001
         log.soft_fail("listing remote MCP tools failed", actor=definition.full_name, reason=str(exc))
-        return f"Connected to the Actor's MCP server, but listing its tools failed: {exc}"
+        return "Connected to the Actor's MCP server, but listing its tools failed."
     if not tools:
         return "The Actor's MCP server lists no tools."
     lines = [f"Call these tools with call-actor using `actor: \"{definition.full_name}:<toolName>\"`."]
@@ -388,6 +388,12 @@ async def _call_remote(cc: CallContext, definition, tool_name: str, arguments: d
         raise ToolError(f"The MCP endpoint of {definition.full_name} is not usable: {exc}.", user=False) from exc
     try:
         result = await remote.call_remote_tool(url, cc.api.token, tool_name, arguments)
+    except remote.RemoteResponseTooLarge as exc:
+        # size and busy refusals say what went wrong; the generic "unavailable" text would hide it
+        log.soft_fail("remote MCP tool call refused", actor=definition.full_name, tool=tool_name, reason=str(exc))
+        raise ToolError(
+            f"Calling tool '{tool_name}' of Actor {definition.full_name} failed: {exc}.", user=False, detail=str(exc)
+        ) from exc
     except Exception as exc:  # noqa: BLE001
         text_ = str(exc)
         if "cannot-start-actor-runs" in text_:
@@ -398,9 +404,10 @@ async def _call_remote(cc: CallContext, definition, tool_name: str, arguments: d
             ) from exc
         log.soft_fail("remote MCP tool call failed", actor=definition.full_name, tool=tool_name, reason=text_)
         raise ToolError(
-            f"Calling tool '{tool_name}' of Actor {definition.full_name} failed: {text_}. The Actor's MCP server "
+            f"Calling tool '{tool_name}' of Actor {definition.full_name} failed. The Actor's MCP server "
             "may be unavailable right now.",
             user=False,
+            detail=text_,
         ) from exc
     out: dict[str, Any] = {"content": result.get("content") or [], "isError": bool(result.get("isError"))}
     if result.get("structuredContent") is not None:

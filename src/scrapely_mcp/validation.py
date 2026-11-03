@@ -9,6 +9,7 @@ import re
 import time
 from contextvars import ContextVar
 from typing import Any
+from urllib.parse import unquote
 
 import anyio
 from anyio.lowlevel import RunVar
@@ -76,31 +77,91 @@ def advertised_schema(schema: dict) -> dict:
     return relax_required(out)
 
 
-def _local_ref_targets(schema: dict) -> list[Any]:
-    """Every node a local `#/...` reference in the schema points at."""
+def _pointer(root: Any, ref: str) -> Any:
+    """The node a local `#` / `#/...` reference names, or None. Mirrors the
+    `referencing` library jsonschema resolves with: the pointer is %-decoded as a
+    whole, array segments are int() indices (negative ones too), object segments
+    are `~1` / `~0` unescaped."""
+    node: Any = root
+    if ref == "#":
+        return node
+    for part in unquote(ref[2:]).split("/"):
+        if isinstance(node, list):
+            try:
+                node = node[int(part)]
+            except (ValueError, IndexError):
+                return None
+        elif isinstance(node, dict):
+            node = node.get(part.replace("~1", "/").replace("~0", "~"))
+        else:
+            return None
+    return node
+
+
+def _is_local_ref(ref: str) -> bool:
+    return ref == "#" or ref.startswith("#/")
+
+
+def _local_ref_targets(schema: dict, root: dict | None = None) -> list[Any]:
+    """Every node a local `#/...` reference in `schema` points at (in `root`, default `schema`)."""
     refs: list[str] = []
 
     def collect(node: dict) -> None:
         ref = node.get("$ref")
-        if isinstance(ref, str) and ref.startswith("#/"):
+        if isinstance(ref, str) and _is_local_ref(ref):
             refs.append(ref)
 
     _walk(schema, collect)
-    targets: list[Any] = []
-    for ref in refs:
-        node: Any = schema
-        for part in ref[2:].split("/"):
-            part = part.replace("~1", "/").replace("~0", "~")
-            if not isinstance(node, dict):
-                node = None
-                break
-            node = node.get(part)
-        if isinstance(node, dict):
-            targets.append(node)
-    return targets
+    doc = schema if root is None else root
+    return [node for node in (_pointer(doc, ref) for ref in refs) if isinstance(node, dict)]
+
+
+_DATA_KEYWORDS = ("enum", "const", "default", "examples", "prefill", "example")
+
+
+def _foreign_reference(node: Any, root: bool = True) -> str | None:
+    """The first nested `$id` or non-local `$ref` anywhere in the schema (data
+    keywords aside). A `$id` on the root only names the document: local `#/...`
+    references still resolve against the root, where stripping walks from."""
+    if isinstance(node, list):
+        for v in node:
+            found = _foreign_reference(v, False)
+            if found:
+                return found
+    elif isinstance(node, dict):
+        if "$id" in node and not root:
+            return "$id"
+        ref = node.get("$ref")
+        if ref is not None and not (isinstance(ref, str) and _is_local_ref(ref)):
+            return f"$ref {str(ref)[:200]}"
+        for k, v in node.items():
+            if k in _DATA_KEYWORDS:
+                continue
+            # Under `properties` and the like the keys are names, not keywords.
+            found = _foreign_reference(list(v.values()) if k in _SUBSCHEMA_MAPS and isinstance(v, dict) else v, False)
+            if found:
+                return found
+    return None
 
 
 def validation_schema(schema: dict) -> dict:
+    # Regex keywords are stripped wherever a local pointer leads. A nested `$id`
+    # (which rebases references) and any other `$ref` form could reach a node that
+    # stripping never saw, so a schema using them is refused outright.
+    foreign = _foreign_reference(schema)
+    if foreign:
+        raise ValidationFailure(
+            [
+                {
+                    "keyword": "$ref",
+                    "instancePath": "",
+                    "schemaPath": "#",
+                    "params": {},
+                    "message": f"the tool's input schema uses an unsupported reference ({foreign}); "
+                    "only local '#/...' references are allowed",
+                }
+            ]
+        )
     out = copy.deepcopy(schema)
 
     def strip(node: dict) -> None:
@@ -119,7 +180,7 @@ def validation_schema(schema: dict) -> dict:
             continue
         seen.add(id(node))
         _walk(node, strip)
-        pending.extend(_local_ref_targets(node))
+        pending.extend(_local_ref_targets(node, out))
     return relax_required(out)
 
 
@@ -135,12 +196,8 @@ def _types(schema: dict) -> list[str]:
 def _resolve(schema: Any, root: dict) -> Any:
     if isinstance(schema, dict) and isinstance(schema.get("$ref"), str):
         ref = schema["$ref"]
-        if ref.startswith("#/"):
-            node: Any = root
-            for part in ref[2:].split("/"):
-                if not isinstance(node, dict):
-                    return schema
-                node = node.get(part)
+        if _is_local_ref(ref):
+            node = _pointer(root, ref)
             return node if isinstance(node, dict) else schema
     return schema
 
@@ -311,7 +368,13 @@ _ADDITIONAL_RE = re.compile(r"\('([^']+)'")
 
 class ArgValidator:
     def __init__(self, schema: dict, *, lenient_top_level: bool = False) -> None:
-        self.schema = validation_schema(schema)
+        # A refused schema fails every call with the reason, like an unresolvable one.
+        self._refused: ValidationFailure | None = None
+        try:
+            self.schema = validation_schema(schema)
+        except ValidationFailure as exc:
+            self._refused = exc
+            return
         self.lenient_top_level = lenient_top_level
         if lenient_top_level:
             self.schema = dict(self.schema)
@@ -326,6 +389,8 @@ class ArgValidator:
         return await anyio.to_thread.run_sync(self.validate, args, limiter=_thread_limiter())
 
     def validate(self, args: Any) -> Any:
+        if self._refused is not None:
+            raise self._refused
         budget = validation_budget_secs()
         reset = _deadline.set(time.monotonic() + budget)
         try:

@@ -142,6 +142,7 @@ A container image definition is in `Dockerfile` (`docker build --build-arg SOURC
 | `SCRAPELY_MCP_MAX_SESSIONS` | `10000` | Session limit |
 | `SCRAPELY_MCP_MAX_SESSIONS_PER_CREDENTIAL` | `50` | Open sessions per presented token; over it the caller's own oldest idle session is closed, or the request gets 429 |
 | `SCRAPELY_MCP_MAX_SESSIONS_PER_IP` | `100` | Open sessions per client IP (last `X-Forwarded-For` hop, set by the API server's `/mcp` proxy) |
+| `SCRAPELY_MCP_MAX_SESSIONS_PER_IPNET` | `400` | Open sessions per client IPv6 /48 (the per-IP cap groups IPv6 by /64) |
 | `SCRAPELY_MCP_MAX_SELECTED_ACTORS` | `50` | Most distinct Actors one `?actors=` / `?tools=` selection may name (400 above it) |
 | `SCRAPELY_MCP_VALIDATION_BUDGET_SECS` | `2` | Time one tool call's argument validation may take; a call over it is refused as too large or complex |
 | `SCRAPELY_MCP_MAX_REMOTE_RESPONSE_BYTES` | `10485760` | Byte limit for what one connection to an MCP-server Actor may return |

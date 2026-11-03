@@ -234,7 +234,16 @@ async def _probe_items(cc: CallContext, ds_id: str) -> int:
     for delay in LAG_PROBE_DELAYS:
         await sleep(delay)
         try:
-            items = await cc.api.get_json(f"/v2/datasets/{seg(ds_id)}/items", {"limit": 1, "format": "json"})
+            # One item can be any size: read at most the tool result budget of it.
+            read = await cc.api.get_capped(
+                f"/v2/datasets/{seg(ds_id)}/items",
+                params={"limit": 1, "format": "json"},
+                max_bytes=cc.settings.max_tool_result_bytes,
+            )
+            cc.api.raise_for(read.response)
+            if read.truncated:
+                return 1  # more than the budget of bytes: not an empty list
+            items = cc.api.unwrap(read.response)
         except Exception:  # noqa: BLE001 - probe errors are ignored
             continue
         if isinstance(items, list) and items:

@@ -132,13 +132,15 @@ class ApiClient:
         max_bytes: int,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        tail: bool = False,
     ) -> CappedRead:
         """GET read as a stream that stops after `max_bytes` decoded bytes.
 
         For bodies whose size the caller does not control (dataset pages,
         records): the API streams whatever the request selects, so the gateway
         never holds more than `max_bytes` of one response. Error bodies are read
-        up to 64 KB.
+        up to 64 KB. With `tail`, a successful body is read to the end and only
+        its last `max_bytes` are kept.
         """
         clean_params = _clean_params(params)
         delay = 0.25
@@ -152,14 +154,23 @@ class ApiClient:
                     chunks: list[bytes] = []
                     total = 0
                     truncated = False
-                    async for chunk in resp.aiter_bytes():
-                        room = limit - total
-                        if len(chunk) > room:
-                            chunks.append(chunk[:room])
-                            truncated = True
-                            break
-                        chunks.append(chunk)
-                        total += len(chunk)
+                    if tail and resp.status_code < 400:
+                        kept_tail = bytearray()
+                        async for chunk in resp.aiter_bytes():
+                            kept_tail += chunk
+                            if len(kept_tail) > limit:
+                                del kept_tail[: len(kept_tail) - limit]
+                                truncated = True
+                        chunks.append(bytes(kept_tail))
+                    else:
+                        async for chunk in resp.aiter_bytes():
+                            room = limit - total
+                            if len(chunk) > room:
+                                chunks.append(chunk[:room])
+                                truncated = True
+                                break
+                            chunks.append(chunk)
+                            total += len(chunk)
                     try:
                         declared = int(resp.headers.get("content-length") or "")
                     except ValueError:
