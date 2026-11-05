@@ -1,0 +1,10 @@
+{
+  "name": "scrapely",
+  "version": "0.3.14",
+  "description": "Search 500+ ready-made web scrapers, run them in the cloud and read structured results from datasets and logs.",
+  "mcpServers": {
+    "scrapely": {
+      "httpUrl": "https://mcp.scrape.ly"
+    }
+  }
+}
