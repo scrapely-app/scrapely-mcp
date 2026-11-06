@@ -1,5 +1,7 @@
 # scrapely-mcp
 
+<!-- mcp-name: ly.scrape/scrapely-mcp-server -->
+
 An [MCP](https://modelcontextprotocol.io) server for [Scrape.ly](https://scrape.ly). It gives AI agents and MCP clients
 access to a Scrape.ly account: search the Store for Actors, read their README and input schema, run them, follow the
 runs, and read the results from datasets, key-value stores and logs. It can also manage saved tasks and search the

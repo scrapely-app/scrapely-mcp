@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.15] - 2026-11-06
+
+- Out of credit: a 402 for the account balance (the API's `error.data.reason` is `insufficient-credit` or
+  `insufficient-funds`; other 402s such as x402 / Skyfire payment sessions keep their answer) gets its own failure category, `INSUFFICIENT_CREDIT` (was
+  `INVALID_INPUT` with "Check the tool name and its inputs."). The tool result carries the API's text (a Free account
+  is offered Starter instead of being told to add credits), the unlock or top-up link from the API's `error.data`,
+  and one line for the agent: "Show the user this unlock link." x402 prepay answers are unchanged.
+- `call-actor` / `get-actor-run`: a run whose results are held because the free credit ran out says how many are
+  held and until when, and `nextStep` starts with the unlock link; `structuredContent.held` has `items`, `status`,
+  `heldUntil` and `unlockUrl`.
+
+## [0.3.14] - 2026-11-04
+
+- README: registry ownership line for the official MCP Registry (`ly.scrape/scrapely-mcp-server`).
+
 ## [0.3.13] - 2026-11-03
 
 - `get-actor-output`: when the run's OUTPUT record cannot be read (for example an API key without the

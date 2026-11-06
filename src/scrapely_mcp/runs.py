@@ -202,6 +202,51 @@ def summarize(run: dict, structured: dict, output_tool: bool = False) -> tuple[s
     return summary, f"Call get-actor-run with runId \"{run_id}\" and waitSecs=30 to check the current state."
 
 
+def held_note(run: dict) -> tuple[str, str, dict | None]:
+    """Held results of a run (the account's free credit ran out while it ran): (summary, step, structured).
+
+    The API's run object carries `held` for the run's owner only: {status, items, heldUntil, unlock:
+    {planName, priceUsd, creditUsd, checkoutUrl} | null, ...}. Held results are not in the dataset until
+    they are unlocked; nothing of them is ever shown, only their count.
+    """
+    held = run.get("held")
+    if not isinstance(held, dict):
+        return "", "", None
+    items = held.get("items")
+    if not isinstance(items, (int, float)) or isinstance(items, bool) or items <= 0:
+        return "", "", None
+    n = int(items)
+    status = held.get("status")
+    noun = f"{n:,} more result{'s' if n != 1 else ''}"
+    if status == "expired":
+        return f" {noun} this run found were held because the free credit ran out, and have expired.", "", None
+    if status not in ("holding", "held"):
+        return "", "", None
+    unlock = held.get("unlock") if isinstance(held.get("unlock"), dict) else None
+    link = (unlock or {}).get("checkoutUrl")
+    until = held.get("heldUntil")
+    until_part = f" until {normalize_ts(until)}" if until else ""
+    summary = (
+        f" The Scrape.ly free credit ran out during this run: {noun} were found and are held{until_part}"
+        " (not in the dataset yet)."
+    )
+    structured: dict[str, Any] = {"items": n, "status": status}
+    if until:
+        structured["heldUntil"] = normalize_ts(until)
+    if not isinstance(link, str) or not link:
+        return summary, "", structured
+    structured["unlockUrl"] = link
+    offer = ""
+    plan, price = (unlock or {}).get("planName"), (unlock or {}).get("priceUsd")
+    if plan and isinstance(price, (int, float)):
+        price_text = f"${price:g}" if float(price).is_integer() else f"${price:.2f}"
+        credit = (unlock or {}).get("creditUsd")
+        credit_text = ", all of it as credit" if isinstance(credit, (int, float)) and credit >= price else ""
+        offer = f" with {plan} ({price_text} every 4 weeks{credit_text})"
+    step = f"Unlock the {noun}{offer}: {link}\nShow the user this unlock link."
+    return summary, step, structured
+
+
 async def _dataset_entry(cc: CallContext, ds_id: str, succeeded: bool) -> dict:
     entry: dict[str, Any] = {"id": ds_id}
     try:
@@ -465,6 +510,12 @@ async def wait_and_respond(
     structured = {k: v for k, v in structured.items() if v is not None}
     structured["storages"] = await build_storages(cc, run, enrich=True)
     summary, step = summarize(run, structured, output_tool=cc.has("get-actor-output"))
+    held_summary, held_step, held = held_note(run)
+    if held is not None:
+        structured["held"] = held
+    summary += held_summary
+    if held_step:
+        step = f"{held_step}\n{step}"
     structured["summary"] = summary
     structured["nextStep"] = step
     from .core import run_result
@@ -506,6 +557,7 @@ __all__ = [
     "path_ref",
     "run_params",
     "start_response",
+    "held_note",
     "summarize",
     "usage_meta",
     "wait_and_respond",

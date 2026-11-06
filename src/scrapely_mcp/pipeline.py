@@ -18,6 +18,11 @@ from .util import json_size
 # Spec names plus the equivalents the Scrape.ly API documents publicly.
 RUN_LIMIT_TYPES = {"cannot-start-actor-runs", "concurrency-limit-exceeded"}
 MEMORY_LIMIT_TYPES = {"memory-limit-exceeded", "limit-exceeded"}
+# 402s for the account balance carry error.data.reason (run starts, storage writes, Standby, builds). Not the run's
+# own maxTotalChargeUsd / maxItems caps, not x402 / Skyfire payment-session 402s.
+CREDIT_ERROR_REASONS = {"insufficient-credit", "insufficient-funds"}
+UNLOCK_LINE = "Show the user this unlock link."
+TOP_UP_LINE = "Show the user this link to add credit."
 
 STRONG_NUDGE = (
     "If you cannot resolve this failure yourself, report it with report-problem before telling the user that it "
@@ -91,6 +96,38 @@ def request_token(state: SessionState, meta: dict | None) -> str | None:
     return state.token
 
 
+def is_credit_error(exc: ApiError) -> bool:
+    """A 402 because the account is out of credit: the API says so in error.data.reason.
+
+    Other 402s (x402 / Skyfire payment sessions, a run's own cost cap, an API without that data) keep the generic
+    answer.
+    """
+    if exc.status != 402:
+        return False
+    data = exc.data if isinstance(exc.data, dict) else {}
+    return data.get("reason") in CREDIT_ERROR_REASONS
+
+
+def credit_error_text(exc: ApiError, settings) -> str:
+    """The out-of-credit answer: the API's plan-aware text and the link the user's agent should show.
+
+    The API (error.data) gives a Free account the Starter checkout or its held run's unlock link
+    (`unlock.checkoutUrl`) and a paid account its billing page (`topUpUrl`). An API without that data
+    gets the console's billing page.
+    """
+    data = exc.data if isinstance(exc.data, dict) else {}
+    unlock = data.get("unlock") if isinstance(data.get("unlock"), dict) else None
+    link = (unlock or {}).get("checkoutUrl") or data.get("topUpUrl")
+    lines = [f"Your Scrape.ly account is out of credit. {exc.message.strip()}"]
+    if isinstance(link, str) and link:
+        lines.append(f"{'Unlock link' if unlock else 'Add credit here'}: {link}")
+        lines.append(UNLOCK_LINE if unlock else TOP_UP_LINE)
+    else:
+        lines.append(f"Add credit or choose a plan here: {settings.console_base_url}/billing/subscription")
+        lines.append(TOP_UP_LINE)
+    return "\n".join(lines)
+
+
 def _error_text(tool_name: str, exc: ApiError, settings) -> tuple[str, str, bool]:
     """Return (text, category, user_error) for an API error."""
     status = exc.status
@@ -121,6 +158,8 @@ def _error_text(tool_name: str, exc: ApiError, settings) -> tuple[str, str, bool
             "INVALID_INPUT",
             True,
         )
+    if is_credit_error(exc):
+        return credit_error_text(exc, settings), "INSUFFICIENT_CREDIT", True
     if status is None or status >= 500:
         # Server-side detail stays in telemetry (detail), not in the client text.
         return f"Tool {tool_name} failed due to a server error. Try again later.", "INTERNAL_ERROR", False

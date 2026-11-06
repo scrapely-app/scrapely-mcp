@@ -179,6 +179,16 @@
             }
           }
         },
+        "held": {
+          "type": "object",
+          "$comment": "Results held because the account's free credit ran out; unlockUrl opens the unlock checkout (show it to the user)",
+          "properties": {
+            "items": { "type": "number" },
+            "status": { "type": "string" },
+            "heldUntil": { "type": "string" },
+            "unlockUrl": { "type": "string" }
+          }
+        },
         "summary": { "type": "string" },
         "nextStep": { "type": "string" }
       },
