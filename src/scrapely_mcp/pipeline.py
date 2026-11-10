@@ -21,6 +21,8 @@ MEMORY_LIMIT_TYPES = {"memory-limit-exceeded", "limit-exceeded"}
 # 402s for the account balance carry error.data.reason (run starts, storage writes, Standby, builds). Not the run's
 # own maxTotalChargeUsd / maxItems caps, not x402 / Skyfire payment-session 402s.
 CREDIT_ERROR_REASONS = {"insufficient-credit", "insufficient-funds"}
+# Longest API error message passed to the client; the full text stays in telemetry and the session log (detail).
+MAX_CLIENT_MESSAGE = 300
 UNLOCK_LINE = "Show the user this unlock link."
 TOP_UP_LINE = "Show the user this link to add credit."
 
@@ -96,6 +98,13 @@ def request_token(state: SessionState, meta: dict | None) -> str | None:
     return state.token
 
 
+def _client_message(exc: ApiError) -> str:
+    message = exc.message.strip()
+    if len(message) > MAX_CLIENT_MESSAGE:
+        message = message[:MAX_CLIENT_MESSAGE].rstrip() + "…"
+    return message
+
+
 def is_credit_error(exc: ApiError) -> bool:
     """A 402 because the account is out of credit: the API says so in error.data.reason.
 
@@ -118,7 +127,7 @@ def credit_error_text(exc: ApiError, settings) -> str:
     data = exc.data if isinstance(exc.data, dict) else {}
     unlock = data.get("unlock") if isinstance(data.get("unlock"), dict) else None
     link = (unlock or {}).get("checkoutUrl") or data.get("topUpUrl")
-    lines = [f"Your Scrape.ly account is out of credit. {exc.message.strip()}"]
+    lines = [f"Your Scrape.ly account is out of credit. {_client_message(exc)}"]
     if isinstance(link, str) and link:
         lines.append(f"{'Unlock link' if unlock else 'Add credit here'}: {link}")
         lines.append(UNLOCK_LINE if unlock else TOP_UP_LINE)
@@ -132,7 +141,7 @@ def _error_text(tool_name: str, exc: ApiError, settings) -> tuple[str, str, bool
     """Return (text, category, user_error) for an API error."""
     status = exc.status
     if exc.type == "full-permission-actor-not-approved":
-        msg = exc.message
+        msg = _client_message(exc)
         approval = exc.data.get("approvalUrl") if isinstance(exc.data, dict) else None
         if approval:
             msg += f"\nApprove the Actor's permissions here: {approval}"
@@ -153,7 +162,7 @@ def _error_text(tool_name: str, exc: ApiError, settings) -> tuple[str, str, bool
         )
     if exc.type == "cannot-publish-actor-task":
         return (
-            f"The API refused the task: {exc.message}. SEO fields are checked on create and update, and all "
+            f"The API refused the task: {_client_message(exc)}. SEO fields are checked on create and update, and all "
             "publication requirements on publish. Fix the stated requirement first.",
             "INVALID_INPUT",
             True,
@@ -174,7 +183,7 @@ def _error_text(tool_name: str, exc: ApiError, settings) -> tuple[str, str, bool
         hint = "Check the tool name and its inputs."
         category = "INVALID_INPUT" if status is not None and status < 500 else "INTERNAL_ERROR"
     user = status is not None and status < 500
-    return f"Tool {tool_name} failed: {exc.message.rstrip('.')}{type_part}. {hint}", category, user
+    return f"Tool {tool_name} failed: {_client_message(exc).rstrip('.')}{type_part}. {hint}", category, user
 
 
 def add_nudge(result: dict, state: SessionState, tool_name: str, category: str | None, http_status: int | None) -> dict:

@@ -168,6 +168,7 @@ async def search_actors_widget(cc: CallContext, args: dict) -> dict:
                 "stats": _widget_stats(stats, item),
                 "url": f"{cc.settings.store_url}/{username}/{name}",
                 "currentPricingInfo": simplified_pricing(item, tier),
+                **({"paidPlansOnly": True} if item.get("paidPlansOnly") is True else {}),
             }
         )
     structured = {"actors": actors, "query": query, "count": len(actors)}

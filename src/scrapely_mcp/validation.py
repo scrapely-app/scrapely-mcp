@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import copy
+import functools
 import json
 import os
 import re
 import time
 from contextvars import ContextVar
+from itertools import islice
 from typing import Any
 from urllib.parse import unquote
 
@@ -362,6 +364,14 @@ def _too_complex(budget: float) -> ValidationFailure:
     )
 
 
+async def build_validator(schema: dict, **kwargs: Any) -> ArgValidator:
+    """ArgValidator(schema) in a worker thread: preparing and checking an untrusted schema can be slow."""
+    return await anyio.to_thread.run_sync(functools.partial(ArgValidator, schema, **kwargs), limiter=_thread_limiter())
+
+
+# Most validation errors collected (and reported) for one call.
+MAX_REPORTED_ERRORS = 100
+
 _MISSING_RE = re.compile(r"'([^']+)' is a required property")
 _ADDITIONAL_RE = re.compile(r"\('([^']+)'")
 
@@ -417,7 +427,10 @@ class ArgValidator:
             if not _coerce(args, self.schema, self.schema, self.lenient_top_level):
                 break
         try:
-            errors = sorted(self._validator.iter_errors(args), key=lambda e: (len(e.path), list(map(str, e.path))))
+            errors = sorted(
+                islice(self._validator.iter_errors(args), MAX_REPORTED_ERRORS),
+                key=lambda e: (len(e.path), list(map(str, e.path))),
+            )
         except Unresolvable as exc:
             raise ValidationFailure(
                 [

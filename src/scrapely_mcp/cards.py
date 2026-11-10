@@ -260,6 +260,11 @@ def input_fields_text(fields: dict, total: int | None = None) -> str:
     return "\n".join(out)
 
 
+PAID_PLANS_ONLY_TEXT = (
+    "runs on paid Scrape.ly plans only (Starter or higher). On the Free plan the run is refused and nothing is charged."
+)
+
+
 def build_card(
     actor: dict,
     settings: Settings,
@@ -330,6 +335,10 @@ def build_card(
     if "metadata" in sections and actor.get("modifiedAt"):
         card["modifiedAt"] = normalize_ts(actor.get("modifiedAt"))
     card["isDeprecated"] = bool(actor.get("isDeprecated"))
+    # Runs on paid Scrape.ly plans only (the API sends paidPlansOnly: true only when set): a Free
+    # user's run is refused before it starts, so agents can pick another Actor first.
+    if actor.get("paidPlansOnly") is True:
+        card["paidPlansOnly"] = True
     fields = input_fields(input_schema)
     if fields is not None:
         truncated = fields.pop("_truncated", None)
@@ -370,6 +379,8 @@ def build_card(
         lines.append(f"- Last modified: {card['modifiedAt']}")
     if card["isDeprecated"]:
         lines.append("- Note: this Actor is deprecated and may stop working.")
+    if card.get("paidPlansOnly"):
+        lines.append(f"- Plans: {PAID_PLANS_ONLY_TEXT}")
     if "inputFields" in card:
         lines.append(input_fields_text(card["inputFields"], card.get("inputFieldsTotalCount")))
     return card, "\n".join(lines)

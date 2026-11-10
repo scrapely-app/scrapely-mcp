@@ -252,7 +252,9 @@ def tool_mode(standby: bool, mcp_path: str | None, schema: dict | None) -> str:
 
 # -- cache -----------------------------------------------------------------
 
-_cache: TTLCache[str, ActorDefinition] = TTLCache(500, 1800)
+# Keyed per credential and reference (like _not_found): a hit only ever serves the
+# view the same caller got from the API, never another caller's.
+_cache: TTLCache[tuple[str, str], ActorDefinition] = TTLCache(500, 1800)
 # Tool-list lookups (remember_miss) that found no Actor, per credential and reference,
 # so repeated misses (e.g. a long ?actors= list of made-up names) do not each call
 # the API. Direct calls always look again, so a just-created Actor is found.
@@ -267,7 +269,8 @@ def clear_cache() -> None:
 
 async def get_definition(api: ApiClient, ref: str, *, remember_miss: bool = False) -> ActorDefinition | None:
     caller = None
-    hit = _cache.get(ref)
+    cache_key = (token_fingerprint(api.token), ref)
+    hit = _cache.get(cache_key)
     if hit is not None:
         caller = await get_caller(api)
         if hit.is_public:
@@ -276,7 +279,7 @@ async def get_definition(api: ApiClient, ref: str, *, remember_miss: bool = Fals
             allowed = caller.user_id is not None and caller.user_id == hit.user_id
         if allowed:
             return hit
-    miss_key = (token_fingerprint(api.token), ref)
+    miss_key = cache_key
     if remember_miss and _not_found.get(miss_key):
         return None
     actor = await api.get_actor(ref)
@@ -293,7 +296,7 @@ async def get_definition(api: ApiClient, ref: str, *, remember_miss: bool = Fals
         caller is not None and caller.user_id is not None and caller.user_id == definition.user_id
     )
     if not (definition.is_public and owner_view):
-        _cache.set(ref, definition)
+        _cache.set(cache_key, definition)
     return definition
 
 

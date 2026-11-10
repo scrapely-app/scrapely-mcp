@@ -86,6 +86,7 @@
         "rating": { "type": "object", "properties": { "average": { "type": "number" }, "count": { "type": "number" } } },
         "modifiedAt": { "type": "string" },
         "isDeprecated": { "type": "boolean" },
+        "paidPlansOnly": { "type": "boolean", "$comment": "present (true) only when the Actor runs on paid plans only; a Free user's run is refused" },
         "inputFields": {
           "type": "object",
           "properties": {
@@ -473,7 +474,8 @@
           }
         },
         "url": { "type": "string" },
-        "currentPricingInfo": { "$ref": "#/$defs/Pricing" }
+        "currentPricingInfo": { "$ref": "#/$defs/Pricing" },
+        "paidPlansOnly": { "type": "boolean" }
       }
     }
   }

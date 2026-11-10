@@ -35,7 +35,7 @@ from .tools import (
     builtin_tool,
 )
 from .util import json_size, normalize_actor_name, split_list, truncate_text, utf8_len
-from .validation import MAX_UNTRUSTED_SCHEMA_BYTES, ArgValidator, advertised_schema, schema_size
+from .validation import MAX_UNTRUSTED_SCHEMA_BYTES, advertised_schema, build_validator, schema_size
 
 
 # Most Actors an unauthenticated server/discover may name with ?actors= / ?tools=:
@@ -353,7 +353,11 @@ async def load_actor_tools(
     if schema_size(schema) > MAX_UNTRUSTED_SCHEMA_BYTES:
         log.soft_fail("Actor input schema is oversized, skipping its tool", actor=name)
         return []
-    validator = ArgValidator(schema)
+    try:
+        validator = await build_validator(schema)
+    except RecursionError:
+        log.soft_fail("Actor input schema is nested too deeply, skipping its tool", actor=name)
+        return []
     full = definition.full_name
     title = _clean_title(definition.title, full.rsplit("/", 1)[-1])
     desc = definition.description if isinstance(definition.description, str) and definition.description else ""

@@ -43,6 +43,8 @@ class CappedRead(NamedTuple):
 # Headers that describe the body as sent, not the decoded bytes kept in a CappedRead.
 _BODY_FRAMING_HEADERS = {"content-encoding", "content-length", "transfer-encoding"}
 _ERROR_BODY_MAX_BYTES = 65_536
+# Most bytes of one Actor object (definition, input schema, README) the gateway reads.
+ACTOR_MAX_BYTES = 4 * 1024 * 1024
 
 
 class ApiClient:
@@ -208,8 +210,7 @@ class ApiClient:
                 err_type = err.get("type")
                 message = err.get("message") or message
                 data = err.get("data")
-            elif isinstance(body, dict) and body.get("message"):
-                message = str(body["message"])
+            # Any other JSON shape (a gateway's or framework's own error) is not echoed to the client.
         except (ValueError, AttributeError):
             # A non-JSON body (e.g. a proxy's HTML error page) is not echoed to the client.
             pass
@@ -255,7 +256,14 @@ class ApiClient:
     # -- endpoints -------------------------------------------------------
 
     async def get_actor(self, ref: str) -> Any:
-        return await self.get_or_none(f"/v2/actors/{path_ref(ref)}", none_on_400=True)
+        read = await self.get_capped(f"/v2/actors/{path_ref(ref)}", max_bytes=ACTOR_MAX_BYTES)
+        resp = read.response
+        if resp.status_code in (400, 404):
+            return None
+        self.raise_for(resp)
+        if read.truncated:
+            raise ApiError(f"The Actor's definition is larger than {ACTOR_MAX_BYTES} bytes.", status=502)
+        return self.unwrap(resp)
 
     async def store_search(self, params: dict[str, Any]) -> list[dict]:
         data = await self.get_json("/v2/store/actors", params)

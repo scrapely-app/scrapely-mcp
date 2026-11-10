@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.16] - 2026-11-10
+
+- Store cards (`search-actors`, `fetch-actor-details`): an Actor that runs on paid plans only says so (`paidPlansOnly: true` and a "Plans:" line); a Free user's run is refused and nothing is charged.
+- Error answers carry at most 300 characters of the API's message.
+- `fetch-actor-details`: an Actor definition is read up to 4 MB; a larger one is an error instead of being loaded whole. Cached definitions are kept per caller, not shared across tokens.
+- Hosted server: a request body that takes longer than 30 s to arrive gets a 408; an idle event stream closes after the session idle time; a caller with a token never pushes out another caller's idle session; telemetry can be turned off per request, but not on when the server has it off.
+- `gemini-extension.json` for Gemini CLI (`gemini extensions install`), pointing at the hosted server; `server.json` names the public repository.
+
 ## [0.3.15] - 2026-11-06
 
 - Out of credit: a 402 for the account balance (the API's `error.data.reason` is `insufficient-credit` or

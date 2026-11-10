@@ -120,7 +120,12 @@ scrapely-mcp-http --host 0.0.0.0 --port 8000
 | `/healthz` | Health check, `{"status":"ok"}` |
 
 URL parameters on the MCP endpoint: `tools`, `actors`, `maxActorMemoryBytes`, `ui`, `payment` (`skyfire` or
-`x402`), `telemetry-enabled`, `token`.
+`x402`), `telemetry-enabled`, `token`. `telemetry-enabled` can only turn telemetry off: when the server has telemetry
+disabled, `telemetry-enabled=true` does not turn it on.
+
+When an API call of a tool fails, the tool result carries the API's standard error message (`error.message`), cut to
+300 characters; any other error body (a proxy page, a framework error) is replaced by `HTTP <status>`. The full text
+stays in the session log and telemetry.
 
 Each session gets its own server instance bound to the SHA-256 fingerprint of the credential that opened it; a
 request with a different credential is answered as if the session did not exist. `SCRAPELY_TOKEN` is never used by

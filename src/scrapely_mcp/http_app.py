@@ -34,6 +34,8 @@ from .server import ScrapelyServer, build_state
 from .task_store import TASK_METHODS, TaskError, store as task_store
 
 MAX_BODY = 4 * 1024 * 1024
+# Seconds a client may take to send a request body.
+BODY_READ_TIMEOUT = 30.0
 PLACEHOLDER_TOKEN = "your-scrapely-token"
 
 
@@ -301,18 +303,22 @@ class Gateway:
         # 1. read the body
         chunks: list[bytes] = []
         size = 0
-        while True:
-            message = await receive()
-            if message["type"] == "http.disconnect":
-                return
-            body_part = message.get("body", b"")
-            size += len(body_part)
-            if size > MAX_BODY:
-                await self._send_all(send, _json_response_messages(413, rpc_error(-32600, "Request body too large.")))
-                return
-            chunks.append(body_part)
-            if not message.get("more_body"):
-                break
+        with anyio.move_on_after(BODY_READ_TIMEOUT) as body_read:
+            while True:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    return
+                body_part = message.get("body", b"")
+                size += len(body_part)
+                if size > MAX_BODY:
+                    await self._send_all(send, _json_response_messages(413, rpc_error(-32600, "Request body too large.")))
+                    return
+                chunks.append(body_part)
+                if not message.get("more_body"):
+                    break
+        if body_read.cancelled_caught:
+            await self._send_all(send, _json_response_messages(408, rpc_error(-32600, "Request body timed out.")))
+            return
         body = b"".join(chunks)
         parsed: Any = None
         if body:
@@ -392,7 +398,17 @@ class Gateway:
             entry.inflight += 1
             entry.last_seen = time.monotonic()
             try:
-                await entry.manager.handle_request(scope, replay, send)
+                if method == "GET":
+                    # A GET stream ends after the idle timeout (the client reconnects), so it cannot pin the session.
+                    limit = (
+                        self.settings.anonymous_session_idle_timeout
+                        if "anon" in entry.keys
+                        else self.settings.session_idle_timeout
+                    )
+                    with anyio.move_on_after(limit):
+                        await entry.manager.handle_request(scope, replay, send)
+                else:
+                    await entry.manager.handle_request(scope, replay, send)
             finally:
                 entry.inflight -= 1
                 entry.last_seen = time.monotonic()
@@ -419,7 +435,8 @@ class Gateway:
         if tel_values:
             parsed_bool = parse_bool(tel_values[0])
             if parsed_bool is not None:
-                telemetry = parsed_bool
+                # A caller can only opt out: the server's disabled setting wins.
+                telemetry = self.telemetry_enabled and parsed_bool
         selection = self._url_selection(query)
         if selection is not None:
             n_actors = len(actor_selectors(selection))
@@ -604,28 +621,23 @@ class Gateway:
     async def _reserve(self, keys: tuple[str, ...] = ()) -> str | None:
         """Reserve a slot for a new session. Returns None, "key" or "global".
 
-        A caller over its credential cap, its IPv6 network's cap or the
-        payment-only pool only evicts its own idle sessions (same credential,
-        or the same payment-only network): a /48 can hold unrelated callers.
-        Over an address cap, the bucket's oldest idle session goes, but a
-        payment-only caller only ever evicts another payment-only session.
-        When the whole pool is full, the caller's own
-        idle sessions go first; another caller's idle session is evicted only
-        as a last resort, with the same payment-only rule.
+        A token caller only ever evicts its own idle sessions (same
+        credential), over any cap and when the whole pool is full. A
+        payment-only caller evicts its own (same payment-only network) first;
+        over an address cap or a full pool it may evict another payment-only
+        session, never a token holder's.
         """
         async with self._lock:
             # The caller's identity: its credential, or its payment-only network.
             own = self._by_key.get(next((k for k in keys if k.startswith(("cred:", "anonip:"))), ""), set())
             for key in keys:
                 if self._key_count(key) >= self._key_cap(key):
-                    if key.startswith(("cred:", "anonip:", "ipnet:")) or key == "anon":
+                    if key.startswith(("cred:", "anonip:", "ipnet:")) or key == "anon" or "anon" not in keys:
                         pool = [i for i in self._by_key.get(key, ()) if i in own]
-                    elif "anon" in keys:
+                    else:
                         # Payment-only callers never evict a token holder sharing their address.
                         anon = self._by_key.get("anon", set())
                         pool = [i for i in self._by_key.get(key, ()) if i in anon]
-                    else:
-                        pool = list(self._by_key.get(key, ()))
                     victim = self._lru_idle(pool)
                     if victim is None:
                         return "key"
@@ -635,15 +647,6 @@ class Gateway:
                 if victim is None and "anon" in keys:
                     # Payment-only callers never evict a token holder's session to get in.
                     victim = self._lru_idle(list(self._by_key.get("anon", ())))
-                    if victim is None:
-                        return "global"
-                if victim is None:
-                    for key in keys:
-                        victim = self._lru_idle(list(self._by_key.get(key, ())))
-                        if victim is not None:
-                            break
-                if victim is None:
-                    victim = self._lru_idle(list(self.sessions))
                 if victim is None:
                     return "global"
                 self.close_session(victim.session_id, "evicted")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import re
 from typing import Any
 from urllib.parse import unquote, urlsplit, urlunsplit
@@ -141,6 +142,17 @@ async def read_resource(state: SessionState, uri: str, token: str | None, modern
     return []
 
 
+def _api_error_message(body: bytes) -> str | None:
+    """The `error.message` of a Scrape.ly API error body; None for any other body (HTML, other JSON shapes)."""
+    try:
+        parsed = json.loads(body)
+    except ValueError:
+        return None
+    err = parsed.get("error") if isinstance(parsed, dict) else None
+    message = err.get("message") if isinstance(err, dict) else None
+    return message[:300] if isinstance(message, str) and message else None
+
+
 async def _proxy(state: SessionState, uri: str, token: str) -> list[dict]:
     parts = urlsplit(uri)
     internal = urlsplit(state.settings.api_base_url)
@@ -172,8 +184,22 @@ async def _proxy(state: SessionState, uri: str, token: str) -> list[dict]:
         return [{"uri": uri, "mimeType": "text/plain", "text": f"Failed to read {parts.path}."}]
     body = b"".join(chunks)
     if status >= 300:
-        snippet = body[:2000].decode("utf-8", "replace")[:200]
-        return [{"uri": uri, "mimeType": "text/plain", "text": f"Failed to read {parts.path}: HTTP {status}. {snippet}"}]
+        # The raw body stays in the server log; the client gets the status and, for a 4xx,
+        # only the API's own error message (the same rule as api.raise_for).
+        log.soft_fail(
+            "reading a storage resource returned an error",
+            path=parts.path,
+            status=status,
+            reason=body[:2000].decode("utf-8", "replace")[:200],
+        )
+        message = f"Failed to read {parts.path}: HTTP {status}."
+        if 400 <= status < 500:
+            api_message = _api_error_message(body)
+            if api_message:
+                message += f" {api_message}"
+        elif status >= 500:
+            message += " Try again later."
+        return [{"uri": uri, "mimeType": "text/plain", "text": message}]
     if too_large:
         m = _RECORD_PATH.match(parts.path)
         if m:
