@@ -1,0 +1,12 @@
+{
+  "name": "scrapely",
+  "version": "0.3.17",
+  "description": "Scrape any website from Claude Code: finds the right Scrape.ly Store scraper, runs it through the Scrape.ly MCP server or API, and fetches the results.",
+  "author": { "name": "Scrape.ly", "url": "https://scrape.ly" },
+  "homepage": "https://scrape.ly/docs/mcp",
+  "repository": "https://github.com/scrapely-app/scrapely-mcp",
+  "license": "MIT",
+  "keywords": ["scraping", "web-data", "mcp", "scrapely"],
+  "privacyPolicyUrl": "https://scrape.ly/legal/privacy",
+  "mcpServers": "./mcp.json"
+}
