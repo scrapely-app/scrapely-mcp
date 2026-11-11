@@ -19,6 +19,27 @@ The same package runs in two ways:
 
 Point your client at `https://mcp.scrape.ly`.
 
+[![Add to Claude](https://img.shields.io/badge/Claude-Add_connector-D97757?logo=claude&logoColor=white)](https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=Scrape.ly&connectorUrl=https%3A%2F%2Fmcp.scrape.ly)
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=scrapely&config=eyJ1cmwiOiJodHRwczovL21jcC5zY3JhcGUubHkifQ%3D%3D)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=scrapely&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fmcp.scrape.ly%22%7D)
+[![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=scrapely&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fmcp.scrape.ly%22%7D)
+[![Add to Kiro](https://kiro.dev/images/add-to-kiro.svg)](https://kiro.dev/launch/mcp/add?name=scrapely&config=%7B%22url%22%3A%22https%3A%2F%2Fmcp.scrape.ly%22%7D)
+
+Command-line clients:
+
+```bash
+# Claude Code
+claude mcp add --transport http --scope user scrapely https://mcp.scrape.ly
+claude mcp login scrapely
+
+# Codex CLI
+codex mcp add scrapely --url https://mcp.scrape.ly
+codex mcp login scrapely
+
+# Gemini CLI
+gemini extensions install https://github.com/scrapely-app/scrapely-mcp
+```
+
 - Clients that support MCP authorization find the OAuth flow on their own and ask you to sign in.
 - Otherwise send your API token as a header: `Authorization: Bearer <token>`.
 - Clients that cannot set headers can append `?token=<token>` to the URL. URLs tend to end up in logs, so prefer
@@ -207,6 +228,11 @@ disabled every client gets the plain tool set.
 uv venv && uv pip install -e ".[test]"
 pytest
 ```
+
+## Privacy and support
+
+- Privacy policy: https://scrape.ly/legal/privacy
+- Support: hello@scrape.ly
 
 ## License
 
