@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.17] - 2026-11-11
+
+- README: one-click install buttons for Claude, Cursor, VS Code, VS Code Insiders and Kiro, setup commands for Claude Code, Codex CLI and Gemini CLI, and privacy and support links.
+- Agent skill `scrapely-scrape` in `skills/`, also shipped in the Cursor plugin.
+
 ## [0.3.16] - 2026-11-10
 
 - Store cards (`search-actors`, `fetch-actor-details`): an Actor that runs on paid plans only says so (`paidPlansOnly: true` and a "Plans:" line); a Free user's run is refused and nothing is charged.

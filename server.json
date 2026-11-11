@@ -3,7 +3,7 @@
   "name": "ly.scrape/scrapely-mcp-server",
   "title": "Scrape.ly",
   "description": "Find Actors in the Scrape.ly Store, run them, and read their datasets, key-value stores and logs.",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "websiteUrl": "https://scrape.ly/docs/mcp",
   "repository": {
     "url": "https://github.com/scrapely-app/scrapely-mcp",
@@ -13,7 +13,7 @@
     {
       "registryType": "pypi",
       "identifier": "scrapely-mcp",
-      "version": "0.3.16",
+      "version": "0.3.17",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         { "name": "SCRAPELY_TOKEN", "description": "Scrape.ly API token", "isRequired": false, "isSecret": true },

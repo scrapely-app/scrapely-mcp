@@ -1,6 +1,6 @@
 {
   "name": "scrapely",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "description": "Search 500+ ready-made web scrapers, run them in the cloud and read structured results from datasets and logs.",
   "mcpServers": {
     "scrapely": {
